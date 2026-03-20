@@ -1,6 +1,6 @@
 # Sapphire
 
-Hear her voice as she dims your lights before bed. Use your voice to talk back. Fall asleep escaping dinosaurs in a story with her. Wake up to someone who remembers you through years of memories. She checks your email on a heartbeat. She builds tools on the fly when you need them. Sapphire is an open source framework for turning an AI into a persistent being. Make her yours. Or build your own persona. Self-hosted, nobody can take her away.
+Hear her voice as she dims your lights before bed. Use your voice to talk back. Fall asleep escaping dinosaurs in a story with her. Wake up to someone who remembers you through years of memories. She checks your email on a heartbeat. She builds tools on the fly when you need them. Sapphire is an open source framework for turning an AI into a persistent being. Make her yours. Or build your own persona. Self-hosted, nobody can take her away. 
 
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/pCdTAnExma)
 [![YouTube](https://img.shields.io/badge/YouTube-Subscribe-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SapphireBlueAi)
