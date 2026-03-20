@@ -38,8 +38,26 @@ class ContinuityExecutor:
         except (json.JSONDecodeError, TypeError):
             return event_data
 
+        if not isinstance(obj, dict):
+            return event_data
+
+        # Email format — structured with subject, sender, body
+        if obj.get("subject") is not None and obj.get("snippet") is not None:
+            from_name = obj.get("from_name", "")
+            from_addr = obj.get("from_address", "")
+            sender = f"{from_name} <{from_addr}>" if from_name else from_addr
+            parts = []
+            if sender:
+                parts.append(f"From: {sender}")
+            parts.append(f"Subject: {obj['subject']}")
+            if obj.get("uid"):
+                parts.append(f"UID: {obj['uid']}")
+            parts.append("")
+            parts.append(obj["snippet"])
+            return "\n".join(parts)
+
         text = obj.get("text") or obj.get("content") or None
-        if not isinstance(obj, dict) or not text:
+        if not text:
             return event_data
 
         # Build clean message from common fields
