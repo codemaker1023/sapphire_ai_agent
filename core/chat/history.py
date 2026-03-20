@@ -1148,6 +1148,11 @@ class ChatSessionManager:
                 )
                 conn.commit()
                 logger.debug(f"Appended message pair to chat '{chat_name}'")
+
+                # If this is the active chat, sync in-memory so /api/history sees it
+                if chat_name == self.active_chat_name:
+                    self.current_chat.messages = messages
+
                 publish(Events.MESSAGE_ADDED, {"role": "pair", "chat_name": chat_name})
         except Exception as e:
             logger.error(f"Failed to append to chat '{chat_name}': {e}")
