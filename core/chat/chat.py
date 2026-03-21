@@ -55,6 +55,10 @@ def friendly_llm_error(e):
     if not status:
         return None
 
+    # Context size exceeded — catch before status code checks (some providers raise without HTTP status)
+    if any(k in error_str for k in ('context size', 'context length', 'context_length', 'maximum context', 'token limit')):
+        return "Context limit exceeded — conversation is too long for this model. Lower CONTEXT_LIMIT in Settings or start a new chat."
+
     if status == 400:
         if 'model' in error_str and any(k in error_str for k in ('not found', 'not loaded', 'does not exist')):
             return "Model not found or not loaded. If using LM Studio, make sure a model is loaded and running."
