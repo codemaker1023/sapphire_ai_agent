@@ -99,16 +99,6 @@ def _run_loop(plugin_loader, api_id: int, api_hash: str):
     asyncio.set_event_loop(_loop)
 
     async def _main():
-        # Wait for scheduler to be ready (daemons start before scheduler is set)
-        for _ in range(15):
-            if _stop_event.is_set():
-                return
-            if plugin_loader._scheduler is not None:
-                break
-            await asyncio.sleep(1)
-        else:
-            logger.warning("[TELEGRAM] Scheduler not ready after 15s — connecting anyway")
-
         # Load all session files and connect
         await _connect_accounts(plugin_loader, api_id, api_hash)
 

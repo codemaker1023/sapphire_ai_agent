@@ -327,18 +327,23 @@ class PluginLoader:
                     } for src in event_sources]
                 logger.info(f"[PLUGINS] Registered {len(event_sources)} event source(s) for {name}")
 
-            # Start daemon background thread if entry point declared
+            # Load daemon module (start is deferred until scheduler is ready)
             daemon_entry = daemon_config.get("entry")
             if daemon_entry:
                 try:
                     daemon_mod = self._load_daemon_module(plugin_dir, daemon_entry)
                     if daemon_mod and hasattr(daemon_mod, "start"):
-                        settings = self.get_plugin_settings(name)
-                        daemon_mod.start(self, settings)
                         info["daemon_module"] = daemon_mod
-                        logger.info(f"[PLUGINS] Started daemon thread for {name}")
+                        if self._scheduler:
+                            # Scheduler already set — start immediately
+                            settings = self.get_plugin_settings(name)
+                            daemon_mod.start(self, settings)
+                            info["daemon_started"] = True
+                            logger.info(f"[PLUGINS] Started daemon thread for {name}")
+                        else:
+                            logger.info(f"[PLUGINS] Daemon for {name} deferred until scheduler ready")
                 except Exception as e:
-                    logger.error(f"[PLUGINS] Failed to start daemon for {name}: {e}", exc_info=True)
+                    logger.error(f"[PLUGINS] Failed to load daemon for {name}: {e}", exc_info=True)
 
         info["loaded"] = True
 
@@ -591,6 +596,7 @@ class PluginLoader:
         """
         self._scheduler = scheduler
         self._register_pending_schedules()
+        self._start_pending_daemons()
 
     def _register_pending_schedules(self):
         """Register schedule tasks for loaded plugins that missed registration during scan()."""
@@ -625,6 +631,24 @@ class PluginLoader:
                 except Exception as e:
                     logger.error(f"[PLUGINS] Failed deferred schedule for {name}: {e}")
             info["schedule_task_ids"] = task_ids
+
+    def _start_pending_daemons(self):
+        """Start daemon threads for plugins that were loaded before scheduler was ready."""
+        with self._lock:
+            snapshot = list(self._plugins.items())
+        for name, info in snapshot:
+            if not info.get("loaded") or not info.get("daemon_module"):
+                continue
+            if info.get("daemon_started"):
+                continue
+            daemon_mod = info["daemon_module"]
+            try:
+                settings = self.get_plugin_settings(name)
+                daemon_mod.start(self, settings)
+                info["daemon_started"] = True
+                logger.info(f"[PLUGINS] Started deferred daemon for {name}")
+            except Exception as e:
+                logger.error(f"[PLUGINS] Failed to start deferred daemon for {name}: {e}", exc_info=True)
 
     def rescan(self):
         """Scan for new plugins and clean up removed ones.

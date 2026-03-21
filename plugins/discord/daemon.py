@@ -86,16 +86,6 @@ def _run_loop():
     asyncio.set_event_loop(_loop)
 
     async def _main():
-        # Wait for scheduler to be ready (daemons start before scheduler is set)
-        for _ in range(15):
-            if _stop_event.is_set():
-                return
-            if _plugin_loader._scheduler is not None:
-                break
-            await asyncio.sleep(1)
-        else:
-            logger.warning("[DISCORD] Scheduler not ready after 15s — connecting anyway")
-
         await _connect_accounts()
         # Keep loop alive until stop
         while not _stop_event.is_set():
