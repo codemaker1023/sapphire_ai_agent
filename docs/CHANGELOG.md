@@ -1,6 +1,10 @@
+# 2.4.2 - MCP
+- stdio and http support for MCP servers
+- tools register with core, visible in toolsets
+- pip install -r requirements.txt
 # 2.4.1 - Daemon and Telegram
-- Daemon support only loads active accounts
-- Telegram has bot support (kept Client support too)
+- Daemon support only loads active accounts 
+- Telegram has actual bot support via @BotFather
 # 2.4.0 - Presence Update
 ## March 19, 2026
 - Milestone release since 2.2.8

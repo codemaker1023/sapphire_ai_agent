@@ -1,0 +1,23 @@
+{
+  "name": "mcp_client",
+  "version": "1.0.0",
+  "description": "MCP Client \u2014 connect to Model Context Protocol servers",
+  "author": "sapphire",
+  "icon": "\ud83d\udd0c",
+  "priority": 50,
+  "default_enabled": false,
+  "settingsUI": "plugin",
+  "capabilities": {
+    "tools": ["tools/mcp_tools.py"],
+    "daemon": {
+      "entry": "daemon.py"
+    },
+    "routes": [
+      {"method": "GET",    "path": "servers",                  "handler": "routes/servers.py:list_servers"},
+      {"method": "POST",   "path": "servers",                  "handler": "routes/servers.py:add_server"},
+      {"method": "DELETE", "path": "servers/{name}",           "handler": "routes/servers.py:remove_server"},
+      {"method": "POST",   "path": "servers/{name}/reconnect", "handler": "routes/servers.py:reconnect_server"},
+      {"method": "GET",    "path": "servers/{name}/tools",     "handler": "routes/servers.py:get_server_tools"}
+    ]
+  }
+}

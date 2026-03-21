@@ -343,6 +343,78 @@ class FunctionManager:
         if to_remove:
             logger.info(f"Plugin '{plugin_name}' tools unregistered: {to_remove}")
 
+    def register_dynamic_tools(self, module_name: str, tools: list, executor, plugin_name: str = '', emoji: str = ''):
+        """Register tools from a dynamic source (MCP servers, runtime generators, etc.).
+
+        Unlike register_plugin_tools which loads from Python files, this accepts
+        pre-built tool definitions and an executor callable directly.
+
+        Args:
+            module_name: Unique module key (e.g. "mcp:filesystem")
+            tools: List of tool dicts in OpenAI format [{type: "function", function: {name, description, parameters}}]
+            executor: Callable(function_name, arguments, config) -> (result, success)
+            plugin_name: Owner plugin for cleanup tracking (used by unregister_plugin_tools)
+            emoji: Display emoji for toolset UI
+        """
+        available = [t['function']['name'] for t in tools]
+
+        with self._tools_lock:
+            # Check for conflicts
+            existing_names = {t['function']['name'] for t in self.all_possible_tools}
+            for tool in tools:
+                fname = tool['function']['name']
+                if fname in existing_names:
+                    owner = self._function_module_map.get(fname, 'unknown')
+                    logger.warning(f"Dynamic tool '{fname}' conflicts with '{owner}' — skipping")
+                    tools = [t for t in tools if t['function']['name'] != fname]
+                    available = [a for a in available if a != fname]
+
+            if not tools:
+                return
+
+            self.function_modules[module_name] = {
+                'module': None,
+                'tools': tools,
+                'executor': executor,
+                'available_functions': available,
+                'emoji': emoji,
+                '_plugin': plugin_name,
+            }
+
+            for tool in tools:
+                fname = tool['function']['name']
+                self.execution_map[fname] = executor
+                self._function_module_map[fname] = module_name
+                self.all_possible_tools.append(tool)
+
+            # If "all" toolset is active, add to enabled too
+            if self.current_toolset_name == "all":
+                enabled_names = {t['function']['name'] for t in self._enabled_tools}
+                for tool in tools:
+                    if tool['function']['name'] not in enabled_names:
+                        self._enabled_tools.append(tool)
+
+        logger.info(f"Dynamic tools registered: {module_name} ({len(tools)} tools)")
+
+    def unregister_dynamic_tools(self, module_name: str):
+        """Remove a dynamically registered tool module by name."""
+        with self._tools_lock:
+            info = self.function_modules.pop(module_name, None)
+            if not info:
+                return
+
+            func_names = set(info['available_functions'])
+            for fname in func_names:
+                self.execution_map.pop(fname, None)
+                self._function_module_map.pop(fname, None)
+
+            self.all_possible_tools = [t for t in self.all_possible_tools
+                                       if t['function']['name'] not in func_names]
+            self._enabled_tools = [t for t in self._enabled_tools
+                                   if t['function']['name'] not in func_names]
+
+        logger.info(f"Dynamic tools unregistered: {module_name}")
+
     def _get_current_prompt_mode(self) -> str:
         """Get current prompt mode for filtering. Returns 'monolith' or 'assembled'."""
         try:
