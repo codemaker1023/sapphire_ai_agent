@@ -217,13 +217,24 @@ class DeviceManager:
         config = self._get_settings()
         configured = getattr(config, 'AUDIO_OUTPUT_DEVICE', None)
 
-        # If configured by name, resolve fresh
+        # If explicitly configured, resolve by index or name
         if configured and configured != 'auto':
-            dev = self.resolve_device_by_name(configured, output=True)
-            if dev:
-                logger.info(f"Output device by name '{configured}': {dev.name} (index {dev.index})")
-                return dev.index, int(dev.default_samplerate), dev.name
-            logger.warning(f"Configured output device '{configured}' not found, falling back")
+            # Try as integer index first (backward compat)
+            try:
+                idx = int(configured)
+                devices = self.query_devices(force_refresh=True)
+                for dev in devices:
+                    if dev.index == idx and dev.max_output_channels > 0:
+                        logger.info(f"Output device by index {idx}: {dev.name}")
+                        return dev.index, int(dev.default_samplerate), dev.name
+                logger.warning(f"Configured output device index {idx} not found, falling back")
+            except (ValueError, TypeError):
+                # It's a string device name
+                dev = self.resolve_device_by_name(str(configured), output=True)
+                if dev:
+                    logger.info(f"Output device by name '{configured}': {dev.name} (index {dev.index})")
+                    return dev.index, int(dev.default_samplerate), dev.name
+                logger.warning(f"Configured output device '{configured}' not found, falling back")
 
         # System default
         try:
