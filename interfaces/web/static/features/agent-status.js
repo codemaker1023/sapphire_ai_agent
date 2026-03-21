@@ -8,6 +8,7 @@ let initialized = false;
 let agents = new Map(); // id -> {name, status, mission, chat_name}
 let pendingAgentReport = null;
 let pendingAgentChat = null;
+let draining = false;
 let workspaces = new Map(); // project -> {type, url, running}
 
 const STATUS_COLORS = {
@@ -220,7 +221,8 @@ function stopPolling() {
 }
 
 async function drainAgentReport() {
-    if (!pendingAgentReport) return;
+    if (!pendingAgentReport || draining) return;
+    draining = true;
     try {
         const activeChat = getActiveChat();
         if (pendingAgentChat && pendingAgentChat !== activeChat) {
@@ -232,6 +234,7 @@ async function drainAgentReport() {
             console.log('[Agents] Still processing, will retry on ai_typing_end');
             return;
         }
+        if (!pendingAgentReport) return; // re-check after awaits
         const report = pendingAgentReport;
         pendingAgentReport = null;
         pendingAgentChat = null;
@@ -254,6 +257,8 @@ async function drainAgentReport() {
         console.error('[Agents] Auto-return failed:', err);
         pendingAgentReport = null;
         pendingAgentChat = null;
+    } finally {
+        draining = false;
     }
 }
 
