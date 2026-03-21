@@ -25,6 +25,7 @@ from .openai_compat import OpenAICompatProvider
 from .openai_responses import OpenAIResponsesProvider
 from .claude import ClaudeProvider
 from .gemini import GeminiProvider
+from .anthropic_compat import AnthropicCompatProvider
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ PROVIDER_CLASSES = {
     'responses': OpenAIResponsesProvider,  # Generic Responses API
     'fireworks': OpenAICompatProvider,
     'claude': ClaudeProvider,
+    'anthropic': AnthropicCompatProvider,
     'gemini': GeminiProvider,
 }
 
@@ -177,6 +179,24 @@ PROVIDER_METADATA = {
         'default_timeout': 10.0,
         'api_key_env': 'GOOGLE_API_KEY',
         'supports_reasoning': True,
+    },
+    'anthropic': {
+        'display_name': 'Anthropic Compatible',
+        'provider_class': 'anthropic',
+        'required_fields': ['base_url', 'api_key', 'model'],
+        'optional_fields': ['timeout'],
+        'model_options': {
+            'MiniMax-M2.7': 'MiniMax M2.7',
+            'MiniMax-M2.7-highspeed': 'MiniMax M2.7 Highspeed',
+            'MiniMax-M2.5': 'MiniMax M2.5',
+            'MiniMax-M2.5-highspeed': 'MiniMax M2.5 Highspeed',
+            'MiniMax-M2.1': 'MiniMax M2.1',
+            'MiniMax-M2.1-highspeed': 'MiniMax M2.1 Highspeed',
+        },
+        'is_local': False,
+        'default_timeout': 10.0,
+        'api_key_env': 'ANTHROPIC_COMPAT_API_KEY',
+        'description': 'Anthropic Messages API compatible endpoint (MiniMax, etc.)',
     },
     'other': {
         'display_name': 'Other (OpenAI Compatible)',

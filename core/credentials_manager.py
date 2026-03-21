@@ -73,6 +73,7 @@ PROVIDER_ENV_VARS = {
     'grok': 'XAI_API_KEY',
     'featherless': 'FEATHERLESS_API_KEY',
     'gemini': 'GOOGLE_API_KEY',
+    'anthropic': 'ANTHROPIC_COMPAT_API_KEY',
     # 'other' has no standard env var - fully manual
 }
 
