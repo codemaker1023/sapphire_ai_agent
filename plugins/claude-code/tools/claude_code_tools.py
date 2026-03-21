@@ -89,7 +89,8 @@ def _create_code_worker():
                 return
 
             args = _build_claude_args(self.mission, settings, session_id=self._session_id)
-            args.extend(['--name', self.project_name])
+            if _HAS_NAME_FLAG:
+                args.extend(['--name', self.project_name])
 
             data, err = _run_claude(args, workspace)
             if err:
@@ -166,6 +167,16 @@ import re
 import subprocess
 
 _SAPPHIRE_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
+
+def _claude_supports_name():
+    """Check if installed claude CLI supports --name (added ~2.1.76)."""
+    try:
+        out = subprocess.run(['claude', '--help'], capture_output=True, text=True, timeout=5)
+        return '--name' in out.stdout
+    except Exception:
+        return False
+
+_HAS_NAME_FLAG = _claude_supports_name()
 
 _CLAUDE_MD_TEMPLATE = """# Project: {project_name}
 
@@ -460,7 +471,8 @@ def _code_session(arguments):
     _write_claude_md(workspace, coder_instructions, project_name)
 
     args = _build_claude_args(mission, settings, session_id=session_id)
-    args.extend(['--name', project_name])
+    if _HAS_NAME_FLAG:
+        args.extend(['--name', project_name])
 
     data, err = _run_claude(args, workspace)
     if err:
