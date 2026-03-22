@@ -501,10 +501,22 @@ async function loadSidebar() {
             llmMetadata = llmData.metadata || {};
             const llmSel = container.querySelector('#sb-llm-primary');
             if (llmSel) {
-                llmSel.innerHTML = '<option value="auto">Auto</option><option value="none">None</option>' +
-                    llmProviders.filter(p => p.enabled).map(p =>
+                const coreProv = llmProviders.filter(p => p.enabled && p.is_core);
+                const customProv = llmProviders.filter(p => p.enabled && !p.is_core);
+                let llmOpts = '<option value="auto">Auto</option><option value="none">None</option>';
+                if (coreProv.length) {
+                    llmOpts += coreProv.map(p =>
                         `<option value="${p.key}">${p.display_name}${p.is_local ? ' \uD83C\uDFE0' : ' \u2601\uFE0F'}</option>`
                     ).join('');
+                }
+                if (customProv.length) {
+                    llmOpts += '<option disabled>\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500</option>';
+                    llmOpts += customProv.map(p => {
+                        const model = p.model ? ` (${p.model.split('/').pop()})` : '';
+                        return `<option value="${p.key}">${p.display_name}${model}${p.is_local ? ' \uD83C\uDFE0' : ' \u2601\uFE0F'}</option>`;
+                    }).join('');
+                }
+                llmSel.innerHTML = llmOpts;
                 setSelect(llmSel, settings.llm_primary || 'auto');
                 updateModelSelector(container, settings.llm_primary || 'auto', settings.llm_model || '');
             }

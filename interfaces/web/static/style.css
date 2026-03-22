@@ -4567,6 +4567,24 @@ a.gallery-caption:hover {
     }
 }
 
+/* Custom provider rows */
+.custom-provider-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+}
+.custom-provider-row:hover { background: var(--bg-secondary); }
+.custom-provider-row.disabled { opacity: 0.6; }
+.custom-provider-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.custom-provider-name { font-weight: 500; }
+.custom-provider-detail { color: var(--text-muted); font-size: var(--font-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-provider-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.toggle-sm { width: 32px; height: 18px; }
+.toggle-sm .toggle-slider::before { width: 14px; height: 14px; }
+
 /* Toggle switch in header */
 .toggle-switch {
     position: relative;
