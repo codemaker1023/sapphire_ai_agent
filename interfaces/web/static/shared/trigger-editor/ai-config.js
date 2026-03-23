@@ -49,10 +49,20 @@ export function renderAIConfig(t, data, opts = {}) {
             personas, voices } = data;
     const { isHeartbeat } = opts;
 
-    const providerOpts = providers
-        .filter(p => p.enabled)
-        .map(p => `<option value="${p.key}" ${t.provider === p.key ? 'selected' : ''}>${p.display_name}${p.is_local ? ' \uD83C\uDFE0' : ' \u2601\uFE0F'}</option>`)
+    const enabledProviders = providers.filter(p => p.enabled);
+    const coreProvs = enabledProviders.filter(p => p.is_core);
+    const customProvs = enabledProviders.filter(p => !p.is_core);
+    let providerOpts = coreProvs
+        .map(p => `<option value="${p.key}" ${t.provider === p.key ? 'selected' : ''}>${p.display_name}</option>`)
         .join('');
+    if (customProvs.length && coreProvs.length) {
+        providerOpts += '<option disabled>\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500</option>';
+    }
+    providerOpts += customProvs
+        .map(p => {
+            const model = p.model ? ` (${p.model.split('/').pop()})` : '';
+            return `<option value="${p.key}" ${t.provider === p.key ? 'selected' : ''}>${p.display_name}${model}</option>`;
+        }).join('');
 
     let voiceOpts = voices.map(v =>
         `<option value="${v.voice_id}" ${t.voice === v.voice_id ? 'selected' : ''}>${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`
@@ -249,10 +259,13 @@ export function wireAIConfig(modal, t, data) {
         const modelSel = modal.querySelector('#ed-model');
         modelField.style.display = 'none';
         modelCustomField.style.display = 'none';
+        modelSel.disabled = false;
         if (key === 'auto' || !key) return;
         const meta = metadata[key];
         const pConfig = providers.find(p => p.key === key);
-        if (meta?.model_options && Object.keys(meta.model_options).length > 0) {
+        const isCore = pConfig?.is_core;
+        if (isCore && meta?.model_options && Object.keys(meta.model_options).length > 0) {
+            // Core provider: show model dropdown with options
             const defaultModel = pConfig?.model || '';
             const defaultLabel = defaultModel ? `Provider default (${meta.model_options[defaultModel] || defaultModel})` : 'Provider default';
             modelSel.innerHTML = `<option value="">${defaultLabel}</option>` +
@@ -262,6 +275,12 @@ export function wireAIConfig(modal, t, data) {
             if (t.model && !meta.model_options[t.model]) {
                 modelSel.innerHTML += `<option value="${t.model}" selected>${t.model}</option>`;
             }
+            modelField.style.display = '';
+        } else if (!isCore) {
+            // Custom provider: model is baked in, show as disabled
+            const model = pConfig?.model || '(default)';
+            modelSel.innerHTML = `<option value="${pConfig?.model || ''}">${model}</option>`;
+            modelSel.disabled = true;
             modelField.style.display = '';
         } else {
             modelCustomField.style.display = '';
