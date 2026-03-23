@@ -6,7 +6,7 @@ from typing import Optional
 import httpx
 import config
 
-from .base import BaseTTSProvider
+from core.tts.providers.base import BaseTTSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +51,24 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
 
     @property
     def _model(self):
+        try:
+            from core.plugin_loader import plugin_loader
+            ps = plugin_loader.get_plugin_settings('elevenlabs')
+            if ps and ps.get('model', '').strip():
+                return ps['model'].strip()
+        except Exception:
+            pass
         return getattr(config, 'TTS_ELEVENLABS_MODEL', 'eleven_flash_v2_5')
 
     @property
     def _voice_id(self):
+        try:
+            from core.plugin_loader import plugin_loader
+            ps = plugin_loader.get_plugin_settings('elevenlabs')
+            if ps and ps.get('voice_id', '').strip():
+                return ps['voice_id'].strip()
+        except Exception:
+            pass
         return getattr(config, 'TTS_ELEVENLABS_VOICE_ID', '') or DEFAULT_VOICE_ID
 
     # ElevenLabs speed range (their API rejects anything outside)
@@ -165,11 +179,24 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
             return []
 
     def _resolve_api_key(self) -> str:
-        """Resolve API key: credentials > setting > env var."""
-        from core.credentials_manager import credentials
-        key = credentials.get_service_api_key('tts_elevenlabs')
-        if key:
-            return key
+        """Resolve API key: plugin settings > credentials > config > env var."""
+        # Check plugin settings first (saved via Settings UI)
+        try:
+            from core.plugin_loader import plugin_loader
+            ps = plugin_loader.get_plugin_settings('elevenlabs')
+            if ps and ps.get('api_key', '').strip():
+                return ps['api_key'].strip()
+        except Exception:
+            pass
+        # Credentials manager
+        try:
+            from core.credentials_manager import credentials
+            key = credentials.get_service_api_key('tts_elevenlabs')
+            if key:
+                return key
+        except Exception:
+            pass
+        # Legacy config
         key = getattr(config, 'TTS_ELEVENLABS_API_KEY', '') or ''
         if key:
             return key

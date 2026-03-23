@@ -1,32 +1,44 @@
-"""TTS provider factory."""
+"""TTS provider registry and factory."""
 import logging
 
 from .base import BaseTTSProvider
+from core.provider_registry import BaseProviderRegistry
 
 logger = logging.getLogger(__name__)
 
 
-def get_tts_provider(provider_name: str) -> BaseTTSProvider:
-    """Create a TTS provider instance by name.
+class TTSProviderRegistry(BaseProviderRegistry):
+    """TTS provider registry — core + plugin providers."""
 
-    Supported: 'kokoro', 'elevenlabs', 'none'/empty.
-    """
-    if not provider_name or provider_name == 'none':
-        from .null import NullTTSProvider
-        return NullTTSProvider()
-
-    if provider_name == 'kokoro':
+    def __init__(self):
+        super().__init__('tts', 'TTS_PROVIDER')
+        # Core providers
         from .kokoro import KokoroTTSProvider
-        return KokoroTTSProvider()
+        from .null import NullTTSProvider
+        self.register_core('kokoro', KokoroTTSProvider, 'Kokoro (Local)', is_local=True)
+        self.register_core('none', NullTTSProvider, 'None (disabled)', is_local=True)
 
-    if provider_name == 'elevenlabs':
-        from .elevenlabs import ElevenLabsTTSProvider
-        return ElevenLabsTTSProvider()
+    def create(self, key, **kwargs):
+        """Create TTS provider — no constructor args needed."""
+        entry = self._core.get(key) or self._plugins.get(key)
+        if not entry:
+            if key and key != 'none':
+                logger.warning(f"[tts] Unknown provider '{key}', falling back to null")
+            entry = self._core.get('none')
+            if not entry:
+                return None
+        try:
+            return entry['class']()
+        except Exception as e:
+            logger.error(f"[tts] Failed to create '{key}': {e}")
+            from .null import NullTTSProvider
+            return NullTTSProvider()
 
-    if provider_name == 'sapphire_router':
-        from .sapphire_router import SapphireRouterTTSProvider
-        return SapphireRouterTTSProvider()
 
-    logger.warning(f"Unknown TTS provider '{provider_name}', falling back to null")
-    from .null import NullTTSProvider
-    return NullTTSProvider()
+tts_registry = TTSProviderRegistry()
+
+
+# Backward compat
+def get_tts_provider(provider_name: str) -> BaseTTSProvider:
+    """Create a TTS provider instance by name. Legacy wrapper."""
+    return tts_registry.create(provider_name or 'none')

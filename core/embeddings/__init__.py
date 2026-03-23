@@ -188,33 +188,54 @@ class NullEmbedder:
         return False
 
 
+# ─── Registry ────────────────────────────────────────────────────────────────
+
+from core.provider_registry import BaseProviderRegistry
+
+
+class EmbeddingRegistry(BaseProviderRegistry):
+    """Embedding provider registry — core + plugin providers."""
+
+    def __init__(self):
+        super().__init__('embedding', 'EMBEDDING_PROVIDER')
+        self.register_core('local', LocalEmbedder, 'Local (Nomic)', is_local=True)
+        self.register_core('none', NullEmbedder, 'None (disabled)', is_local=True)
+
+    def create(self, key, **kwargs):
+        entry = self._core.get(key) or self._plugins.get(key)
+        if not entry:
+            if key and key != 'none':
+                logger.warning(f"[embedding] Unknown provider '{key}', falling back to null")
+            entry = self._core.get('none')
+            if not entry:
+                return None
+        try:
+            return entry['class']()
+        except Exception as e:
+            logger.error(f"[embedding] Failed to create '{key}': {e}")
+            return NullEmbedder()
+
+
+embedding_registry = EmbeddingRegistry()
+
+
 # ─── Singleton + hot-swap ────────────────────────────────────────────────────
 
 _embedder = None
 
 
-def _create_embedder(provider_name=None):
-    name = provider_name or getattr(config, 'EMBEDDING_PROVIDER', 'local')
-    if name == 'api':
-        return RemoteEmbedder()
-    if name == 'local':
-        return LocalEmbedder()
-    if name == 'sapphire_router':
-        return SapphireRouterEmbedder()
-    return NullEmbedder()
-
-
 def get_embedder():
     global _embedder
     if _embedder is None:
-        _embedder = _create_embedder()
+        key = embedding_registry.get_active_key()
+        _embedder = embedding_registry.create(key)
     return _embedder
 
 
 def switch_embedding_provider(provider_name):
     global _embedder
     logger.info(f"Switching embedding provider to: {provider_name}")
-    _embedder = _create_embedder(provider_name)
+    _embedder = embedding_registry.create(provider_name or 'none')
     # Reset backfill flag so new provider can re-embed missing memories
     try:
         import functions.memory as mem

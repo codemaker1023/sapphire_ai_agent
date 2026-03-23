@@ -1,0 +1,48 @@
+{
+  "name": "sapphire-router",
+  "version": "1.0.0",
+  "description": "Sapphire Router \u2014 managed TTS, STT, and Embedding infrastructure",
+  "author": "sapphire",
+  "icon": "\ud83c\udf10",
+  "priority": 50,
+  "default_enabled": false,
+  "settingsUI": "manifest",
+  "capabilities": {
+    "providers": {
+      "tts": {
+        "key": "sapphire_router",
+        "display_name": "Sapphire Router",
+        "entry": "tts_provider.py",
+        "class_name": "SapphireRouterTTSProvider"
+      },
+      "stt": {
+        "key": "sapphire_router",
+        "display_name": "Sapphire Router",
+        "entry": "stt_provider.py",
+        "class_name": "SapphireRouterSTTProvider"
+      },
+      "embedding": {
+        "key": "sapphire_router",
+        "display_name": "Sapphire Router",
+        "entry": "embedding_provider.py",
+        "class_name": "SapphireRouterEmbedder"
+      }
+    },
+    "settings": [
+      {
+        "key": "router_url",
+        "type": "string",
+        "label": "Router URL",
+        "default": "",
+        "help": "Sapphire Router endpoint (e.g., https://router.sapphireblue.dev)"
+      },
+      {
+        "key": "tenant_id",
+        "type": "string",
+        "label": "Tenant ID",
+        "default": "",
+        "help": "Your tenant identifier for the managed infrastructure"
+      }
+    ]
+  }
+}

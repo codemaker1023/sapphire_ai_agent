@@ -1,0 +1,49 @@
+{
+  "name": "elevenlabs",
+  "version": "1.0.0",
+  "description": "ElevenLabs \u2014 cloud text-to-speech with premium voices",
+  "author": "sapphire",
+  "icon": "\ud83c\udf99\ufe0f",
+  "priority": 50,
+  "default_enabled": false,
+  "settingsUI": "manifest",
+  "capabilities": {
+    "providers": {
+      "tts": {
+        "key": "elevenlabs",
+        "display_name": "ElevenLabs (Cloud)",
+        "entry": "provider.py",
+        "class_name": "ElevenLabsTTSProvider",
+        "requires_api_key": true,
+        "api_key_env": "TTS_ELEVENLABS_API_KEY"
+      }
+    },
+    "settings": [
+      {
+        "key": "api_key",
+        "type": "password",
+        "label": "API Key",
+        "default": "",
+        "help": "From elevenlabs.io \u2014 Settings \u2192 API Keys"
+      },
+      {
+        "key": "model",
+        "type": "select",
+        "label": "Model",
+        "default": "eleven_turbo_v2_5",
+        "options": [
+          {"value": "eleven_turbo_v2_5", "label": "Turbo v2.5 (fast)"},
+          {"value": "eleven_multilingual_v2", "label": "Multilingual v2 (quality)"},
+          {"value": "eleven_monolingual_v1", "label": "Monolingual v1 (legacy)"}
+        ]
+      },
+      {
+        "key": "voice_id",
+        "type": "string",
+        "label": "Voice ID",
+        "default": "",
+        "help": "ElevenLabs voice ID. Leave blank for default."
+      }
+    ]
+  }
+}

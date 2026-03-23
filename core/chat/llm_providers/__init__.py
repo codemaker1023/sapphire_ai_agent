@@ -41,15 +41,17 @@ DEFAULT_GENERATION_PARAMS = {
 }
 
 
-class ProviderRegistry:
-    """
-    Central registry for all LLM providers.
+from core.provider_registry import BaseProviderRegistry as _BaseRegistry
 
-    Manages core providers (Claude, OpenAI, Gemini), user-created custom
-    instances (from templates), and plugin-registered provider classes.
+
+class ProviderRegistry(_BaseRegistry):
+    """
+    LLM provider registry — extends shared base with multi-instance,
+    presets, model discovery, generation params, and fallback order.
     """
 
     def __init__(self):
+        super().__init__('llm', 'LLM_PROVIDERS')
         # Template classes: type_key -> provider class
         self._classes: Dict[str, type] = {
             'openai': OpenAICompatProvider,

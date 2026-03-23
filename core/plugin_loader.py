@@ -289,6 +289,44 @@ class PluginLoader:
         if routes:
             self._register_routes(name, plugin_dir, routes)
 
+        # Register providers (TTS, STT, Embedding, LLM)
+        providers_decl = capabilities.get("providers", {})
+        if providers_decl:
+            registered = []
+            for system_name, prov_config in providers_decl.items():
+                registry = self._get_provider_registry(system_name)
+                if not registry:
+                    logger.warning(f"[PLUGINS] Unknown provider system '{system_name}' in {name}")
+                    continue
+                entry_file = prov_config.get("entry", "provider.py")
+                class_name = prov_config.get("class_name")
+                prov_key = prov_config.get("key", name)
+                display_name = prov_config.get("display_name", name)
+                if not class_name:
+                    logger.warning(f"[PLUGINS] Provider in {name} missing class_name for {system_name}")
+                    continue
+                provider_path = plugin_dir / entry_file
+                if not provider_path.exists():
+                    logger.warning(f"[PLUGINS] Provider file not found: {provider_path}")
+                    continue
+                try:
+                    ns = {"__file__": str(provider_path), "__name__": f"plugin_provider_{name}_{system_name}"}
+                    exec(compile(provider_path.read_text(encoding='utf-8'), str(provider_path), 'exec'), ns)
+                    provider_class = ns.get(class_name)
+                    if not provider_class:
+                        logger.error(f"[PLUGINS] Class '{class_name}' not found in {provider_path}")
+                        continue
+                    # Pass through extra metadata
+                    extra = {k: v for k, v in prov_config.items()
+                             if k not in ('entry', 'class_name', 'key', 'display_name')}
+                    registry.register_plugin(prov_key, provider_class, display_name, name, **extra)
+                    registered.append((system_name, prov_key))
+                except Exception as e:
+                    logger.error(f"[PLUGINS] Failed to load provider {class_name} for {name}: {e}", exc_info=True)
+            if registered:
+                info["registered_providers"] = registered
+                logger.info(f"[PLUGINS] {name}: registered {len(registered)} provider(s)")
+
         # Register scheduled tasks with continuity scheduler
         schedules = capabilities.get("schedule", [])
         if schedules and self._scheduler:
@@ -446,12 +484,38 @@ class PluginLoader:
             logger.error(f"[PLUGINS] Failed to load handler {full_path}: {e}", exc_info=True)
             return None
 
+    def _get_provider_registry(self, system_name: str):
+        """Get the provider registry for a system (tts, stt, embedding, llm)."""
+        try:
+            if system_name == 'tts':
+                from core.tts.providers import tts_registry
+                return tts_registry
+            elif system_name == 'stt':
+                from core.stt.providers import stt_registry
+                return stt_registry
+            elif system_name == 'embedding':
+                from core.embeddings import embedding_registry
+                return embedding_registry
+            elif system_name == 'llm':
+                from core.chat.llm_providers import provider_registry
+                return provider_registry
+        except ImportError:
+            pass
+        return None
+
     def unload_plugin(self, name: str):
-        """Unload a plugin — deregister all hooks, tools, routes, schedule tasks, and event sources."""
+        """Unload a plugin — deregister all hooks, tools, routes, providers, schedule tasks, and event sources."""
         hook_runner.unregister_plugin(name)
         if self._function_manager:
             self._function_manager.unregister_plugin_tools(name)
         self._unregister_routes(name)
+
+        # Unregister providers
+        info = self._plugins.get(name, {})
+        for system_name, prov_key in info.get("registered_providers", []):
+            registry = self._get_provider_registry(system_name)
+            if registry:
+                registry.unregister_plugin(name)
         # Remove plugin schedule tasks and event sources
         with self._lock:
             if self._scheduler and name in self._plugins:

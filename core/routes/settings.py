@@ -755,3 +755,29 @@ async def discover_models(provider_key: str, request: Request, _=Depends(require
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
+
+
+# =============================================================================
+# PROVIDER REGISTRY ENDPOINTS (TTS, STT, Embedding)
+# =============================================================================
+
+@router.get("/api/tts/providers")
+async def get_tts_providers(request: Request, _=Depends(require_login)):
+    """List available TTS providers (core + plugin)."""
+    from core.tts.providers import tts_registry
+    active = tts_registry.get_active_key()
+    providers = tts_registry.get_all()
+    for p in providers:
+        p['is_active'] = p['key'] == active
+    return {"providers": providers, "active": active}
+
+
+@router.get("/api/stt/providers")
+async def get_stt_providers(request: Request, _=Depends(require_login)):
+    """List available STT providers (core + plugin)."""
+    from core.stt.providers import stt_registry
+    active = stt_registry.get_active_key()
+    providers = stt_registry.get_all()
+    for p in providers:
+        p['is_active'] = p['key'] == active
+    return {"providers": providers, "active": active}

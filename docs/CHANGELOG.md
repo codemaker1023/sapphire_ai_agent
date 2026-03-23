@@ -1,3 +1,11 @@
+# 2.4.4 - Modular core
+- STT TTS and embeddings are modular
+- can be switched via plugins
+- Elevenlabs moved to plugin
+# 2.4.3 - LLM provider refactor
+- Allows addition of unlimited custom LLMs
+- LLMs that aren't supported can be plugins
+- Supports 2+ LM studio local models with switching
 # 2.4.2 - MCP
 - stdio and http support for MCP servers
 - tools register with core, visible in toolsets
