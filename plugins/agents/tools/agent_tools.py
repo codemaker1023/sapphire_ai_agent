@@ -330,11 +330,30 @@ def _agent_options(manager, ps):
         lines.append("Leave model empty to use the current chat model.")
     else:
         import config as cfg
+        from core.chat.llm_providers import provider_registry
+        core_keys = set(provider_registry.get_core_keys())
         providers_config = {**getattr(cfg, 'LLM_PROVIDERS', {}), **getattr(cfg, 'LLM_CUSTOM_PROVIDERS', {})}
-        lines.append("\nAvailable Providers (no roster \u2014 LLM agents use current chat model by default):")
+        lines.append("\nAvailable Providers (leave model empty = current chat model):")
         for key, pconf in providers_config.items():
-            if pconf.get('enabled'):
-                lines.append(f"  - {key} ({pconf.get('display_name', key)}) \u2014 model: {pconf.get('model', '')}")
+            if not pconf.get('enabled'):
+                continue
+            name = pconf.get('display_name', key)
+            model = pconf.get('model', '')
+            if key in core_keys:
+                # Core providers: show model override syntax
+                meta = provider_registry.get_metadata(key)
+                model_opts = meta.get('model_options', {})
+                if model_opts:
+                    opts = ', '.join(model_opts.keys())
+                    lines.append(f"  - {key} ({name}) \u2014 default: {model}")
+                    lines.append(f"    models: {opts}")
+                    lines.append(f"    usage: model=\"{key}:{list(model_opts.keys())[0]}\"")
+                else:
+                    lines.append(f"  - {key} ({name}) \u2014 model: {model}")
+            else:
+                # Custom providers: key IS the model+config combo
+                lines.append(f"  - {key} ({name}) \u2014 model: {model or '(auto)'}")
+                lines.append(f"    usage: model=\"{key}\"")
 
     # Toolsets
     from core.toolsets import toolset_manager

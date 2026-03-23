@@ -1,7 +1,7 @@
 {
     "name": "agents",
     "version": "2.0.0",
-    "description": "Background AI Agents",
+    "description": "Spawn Agents \u2014 background AI workers that report back when done",
     "author": "sapphire",
     "icon": "\ud83d\udd2d",
     "priority": 50,
