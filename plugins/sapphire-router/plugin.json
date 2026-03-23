@@ -6,7 +6,7 @@
   "icon": "\ud83c\udf10",
   "priority": 50,
   "default_enabled": false,
-  "settingsUI": "manifest",
+  "settingsUI": null,
   "capabilities": {
     "providers": {
       "tts": {

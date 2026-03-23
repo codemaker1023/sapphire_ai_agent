@@ -52,11 +52,9 @@ export function renderProviderTab(tabConfig, ctx) {
         return html;
     }
 
-    // Plugin providers: show link to plugin settings instead of inline fields
+    // Plugin providers: render inline settings from plugin manifest + test button
     if (providerDef._plugin && !providerDef.essentialKeys?.length) {
-        html += `<p class="setting-help" style="padding:12px 0;opacity:0.8">
-            Configure in <strong>Settings \u2192 Plugins \u2192 ${providerDef.label || current}</strong>
-        </p>`;
+        html += `<div id="plugin-provider-settings" data-plugin="${current}" style="padding:8px 0"></div>`;
     }
 
     // Provider-specific essential fields
@@ -84,6 +82,9 @@ export function renderProviderTab(tabConfig, ctx) {
 export function attachProviderListeners(tabConfig, ctx, el, tabModule) {
     const dropdown = el.querySelector(`#setting-${tabConfig.providerKey}`);
     if (!dropdown) return;
+
+    // Load inline plugin settings if a plugin provider is selected
+    _loadPluginProviderSettings(el);
 
     dropdown.addEventListener('change', () => {
         ctx.markChanged(tabConfig.providerKey, dropdown.value);
@@ -163,4 +164,54 @@ function _renderDropdown(tabConfig, current, ctx) {
             </div>
         </div>
     `;
+}
+
+async function _loadPluginProviderSettings(el) {
+    const box = el.querySelector('#plugin-provider-settings');
+    if (!box) return;
+    const pluginName = box.dataset.plugin;
+    if (!pluginName) return;
+
+    try {
+        // Fetch plugin manifest + settings
+        const [pluginsRes, settingsRes] = await Promise.all([
+            fetch('/api/webui/plugins'),
+            fetch(`/api/webui/plugins/${pluginName}/settings`),
+        ]);
+        if (!pluginsRes.ok || !settingsRes.ok) {
+            box.innerHTML = `<p class="setting-help">Configure in Settings \u2192 Plugins \u2192 ${pluginName}</p>`;
+            return;
+        }
+        const pluginsData = await pluginsRes.json();
+        const settingsData = await settingsRes.json();
+        const plugin = (pluginsData.plugins || []).find(p => p.name === pluginName);
+        const schema = plugin?.settings_schema || [];
+        const values = settingsData.settings || {};
+
+        if (!schema.length) {
+            box.innerHTML = `<p class="setting-help">No settings for this provider.</p>`;
+            return;
+        }
+
+        // Render using the shared plugin settings renderer
+        const { renderSettingsForm, readSettingsForm } = await import('./plugin-settings-renderer.js');
+        renderSettingsForm(box, schema, values);
+
+        // Auto-save on change
+        box.addEventListener('change', async () => {
+            const updated = readSettingsForm(box, schema);
+            try {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                await fetch(`/api/webui/plugins/${pluginName}/settings`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify(updated),
+                });
+            } catch (e) {
+                console.warn('Failed to save plugin provider settings:', e);
+            }
+        });
+    } catch (e) {
+        box.innerHTML = `<p class="setting-help">Configure in Settings \u2192 Plugins \u2192 ${pluginName}</p>`;
+    }
 }

@@ -154,9 +154,12 @@ async def tts_voices_post(request: Request, _=Depends(require_login), system=Dep
 
     # If an API key is provided, fetch voices directly (pre-save browsing)
     if api_key:
-        from core.tts.providers.elevenlabs import ElevenLabsTTSProvider
-        voices = await asyncio.to_thread(ElevenLabsTTSProvider.list_voices_with_key, api_key)
-        return {"voices": voices}
+        try:
+            from plugins.elevenlabs.provider import ElevenLabsTTSProvider
+            voices = await asyncio.to_thread(ElevenLabsTTSProvider.list_voices_with_key, api_key)
+            return {"voices": voices}
+        except ImportError:
+            return {"voices": [], "error": "ElevenLabs plugin not available"}
 
     # Otherwise use the active provider
     provider = getattr(system.tts, '_provider', None)

@@ -28,6 +28,7 @@ The `capabilities` object declares what the plugin provides:
     "routes": [ ... ],
     "schedule": [ ... ],
     "settings": [ ... ],
+    "providers": { ... },
     "web": { ... }
   }
 }
@@ -39,6 +40,7 @@ Each capability is documented in its own guide:
 - [Routes](routes.md)
 - [Schedule](schedule.md)
 - [Settings & Web UI](settings.md)
+- [Providers (TTS, STT, Embedding, LLM)](providers.md)
 
 ## Priority Bands
 

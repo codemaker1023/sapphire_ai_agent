@@ -93,7 +93,13 @@ async def list_plugins(request: Request, _=Depends(require_login)):
                 has_web = (Path(plugin_dir) / "web" / "index.js").exists() if plugin_dir else False
                 has_script = (Path(plugin_dir) / "web" / "main.js").exists() if plugin_dir else False
                 settings_schema = manifest.get("capabilities", {}).get("settings")
-                if has_web:
+                # Respect manifest settingsUI — null means no separate settings page
+                manifest_ui = manifest.get("settingsUI", "auto")
+                if manifest_ui is None or manifest_ui == "none":
+                    settings_ui = None
+                elif manifest_ui in ("plugin", "manifest", "core"):
+                    settings_ui = manifest_ui
+                elif has_web:
                     settings_ui = "plugin"
                 elif settings_schema:
                     settings_ui = "manifest"

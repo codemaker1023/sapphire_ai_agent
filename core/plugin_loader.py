@@ -663,6 +663,7 @@ class PluginLoader:
         self._scheduler = scheduler
         self._register_pending_schedules()
         self._start_pending_daemons()
+        self._reactivate_plugin_providers()
 
     def _register_pending_schedules(self):
         """Register schedule tasks for loaded plugins that missed registration during scan()."""
@@ -697,6 +698,48 @@ class PluginLoader:
                 except Exception as e:
                     logger.error(f"[PLUGINS] Failed deferred schedule for {name}: {e}")
             info["schedule_task_ids"] = task_ids
+
+    def _reactivate_plugin_providers(self):
+        """Re-trigger provider switches for TTS/STT if they point to a now-available plugin provider.
+
+        At boot, system init runs before plugins load. If TTS_PROVIDER=elevenlabs
+        but the plugin hasn't registered yet, TTS falls back to null. After plugins
+        load and set_scheduler is called (from start_server), we re-check and switch
+        if the provider is now available.
+        """
+        try:
+            import config as cfg
+            from core.api_fastapi import get_system
+            try:
+                system = get_system()
+            except Exception:
+                logger.debug("[PLUGINS] Provider reactivation skipped: system not available yet")
+                return
+
+            # TTS
+            tts_key = getattr(cfg, 'TTS_PROVIDER', 'none')
+            if tts_key and tts_key != 'none':
+                from core.tts.providers import tts_registry
+                if tts_registry.has_key(tts_key):
+                    current = getattr(system.tts, 'provider', None)
+                    from core.tts.providers.null import NullTTSProvider
+                    if isinstance(current, NullTTSProvider) or current is None:
+                        logger.info(f"[PLUGINS] Re-activating TTS provider '{tts_key}' (was null at boot)")
+                        system.switch_tts_provider(tts_key)
+
+            # STT
+            stt_key = getattr(cfg, 'STT_PROVIDER', 'none')
+            if stt_key and stt_key != 'none':
+                from core.stt.providers import stt_registry
+                if stt_registry.has_key(stt_key):
+                    from core.stt.stt_null import NullWhisperClient
+                    current = getattr(system, 'whisper_client', None)
+                    if isinstance(current, NullWhisperClient) or current is None:
+                        logger.info(f"[PLUGINS] Re-activating STT provider '{stt_key}' (was null at boot)")
+                        system.switch_stt_provider(stt_key)
+
+        except Exception as e:
+            logger.debug(f"[PLUGINS] Provider reactivation skipped: {e}")
 
     def _start_pending_daemons(self):
         """Start daemon threads for plugins that were loaded before scheduler was ready."""

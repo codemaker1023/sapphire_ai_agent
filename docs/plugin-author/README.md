@@ -14,6 +14,7 @@ A plugin is a package that can contain tools, yes, but also hooks into parts of 
 - **Block or modify tool arguments** before execution (`pre_execute`)
 - **Control TTS** — change the voice, rewrite text, or cancel speech entirely (`pre_tts`)
 - **React to wakeword detection** before recording starts (`on_wake`)
+- **Provide custom inference providers** — TTS, STT, Embedding, or LLM backends that appear in settings dropdowns ([guide](providers.md))
 - **Run scheduled tasks** on cron timers, independent of any conversation
 - **Register voice commands** — keyword triggers that bypass the LLM entirely
 - **Ship a settings UI** that renders in the browser with zero JavaScript (or full custom JS)
