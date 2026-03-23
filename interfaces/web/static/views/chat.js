@@ -643,6 +643,8 @@ async function loadSidebar() {
                 voiceSel.innerHTML = voices.map(v =>
                     `<option value="${v.voice_id}">${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`
                 ).join('');
+            } else if (ttsProvider && ttsProvider !== 'none') {
+                voiceSel.innerHTML = '<option value="">Default</option>';
             } else {
                 voiceSel.innerHTML = '<option value="">No TTS active</option>';
             }

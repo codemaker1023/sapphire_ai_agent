@@ -321,8 +321,10 @@ class TTSClient:
             if not audio_bytes:
                 return None, None
 
-            # Save to temp file for soundfile to read (all providers return OGG/Opus)
-            fd, temp_path = tempfile.mkstemp(suffix='.ogg', dir=self.temp_dir)
+            # Save to temp file for soundfile to read
+            ext_map = {'audio/mp3': '.mp3', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/ogg': '.ogg'}
+            ext = ext_map.get(self._provider.audio_content_type, '.ogg')
+            fd, temp_path = tempfile.mkstemp(suffix=ext, dir=self.temp_dir)
             os.close(fd)
 
             with open(temp_path, 'wb') as f:
@@ -484,7 +486,9 @@ class TTSClient:
 
             # Apply pitch shift if needed (requires decode → re-encode)
             if use_pitch != 1.0:
-                fd, temp_path = tempfile.mkstemp(suffix='.ogg', dir=self.temp_dir)
+                ext_map = {'audio/mp3': '.mp3', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/ogg': '.ogg'}
+                ext = ext_map.get(self._provider.audio_content_type, '.ogg')
+                fd, temp_path = tempfile.mkstemp(suffix=ext, dir=self.temp_dir)
                 os.close(fd)
 
                 with open(temp_path, 'wb') as f:
@@ -492,6 +496,7 @@ class TTSClient:
 
                 audio_data, samplerate = sf.read(temp_path)
                 audio_data, samplerate = self._apply_pitch_shift(audio_data, samplerate, pitch=use_pitch)
+                # Re-encode as OGG regardless of input format (consistent output)
                 sf.write(temp_path, audio_data, samplerate, format='OGG', subtype='OPUS')
 
                 with open(temp_path, 'rb') as f:

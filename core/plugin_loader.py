@@ -726,6 +726,12 @@ class PluginLoader:
                     if isinstance(current, NullTTSProvider) or current is None:
                         logger.info(f"[PLUGINS] Re-activating TTS provider '{tts_key}' (was null at boot)")
                         system.switch_tts_provider(tts_key)
+                        # Notify frontend so voice dropdown and speed range refresh
+                        try:
+                            from core.event_bus import publish, Events
+                            publish(Events.SETTINGS_CHANGED, {"key": "TTS_PROVIDER", "value": tts_key})
+                        except Exception:
+                            pass
 
             # STT
             stt_key = getattr(cfg, 'STT_PROVIDER', 'none')
