@@ -7,10 +7,18 @@ from pathlib import Path
 USER_AVATAR_DIR = Path(__file__).parent.parent.parent.parent / "user" / "avatar"
 
 
-def _get_track_names():
-    """Extract animation track names from the active GLB model."""
-    # For now, hardcoded to sapphire.glb — will read from plugin state config later
-    glb_path = USER_AVATAR_DIR / "sapphire.glb"
+def _get_active_model():
+    """Get active model filename from plugin state."""
+    try:
+        from core.plugin_loader import plugin_loader
+        state = plugin_loader.get_plugin_state("avatar")
+        return state.get("active_model", "sapphire.glb")
+    except Exception:
+        return "sapphire.glb"
+
+
+def _get_track_names(glb_path):
+    """Extract animation track names from a GLB file."""
     if not glb_path.exists():
         return []
     try:
@@ -24,7 +32,9 @@ def _get_track_names():
 
 
 def run(event):
-    tracks = _get_track_names()
+    model = _get_active_model()
+    glb_path = USER_AVATAR_DIR / model
+    tracks = _get_track_names(glb_path)
     if not tracks:
         return
 

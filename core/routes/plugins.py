@@ -1324,9 +1324,10 @@ async def plugin_route_dispatch(plugin_name: str, path: str, request: Request, _
 
     handler, path_params = result
 
-    # Parse request body for POST/PUT
+    # Parse request body for POST/PUT (skip for multipart — handler reads form directly)
     body = {}
-    if request.method in ("POST", "PUT"):
+    content_type = request.headers.get("content-type", "")
+    if request.method in ("POST", "PUT") and "multipart" not in content_type:
         try:
             body = await request.json()
         except Exception:

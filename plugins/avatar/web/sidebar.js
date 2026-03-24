@@ -4,33 +4,29 @@ import * as eventBus from '/static/core/event-bus.js';
 const THREE_CDN = 'https://esm.sh/three@0.170.0';
 const GLTF_CDN = 'https://esm.sh/three@0.170.0/addons/loaders/GLTFLoader.js';
 const ORBIT_CDN = 'https://esm.sh/three@0.170.0/addons/controls/OrbitControls.js';
-const MODEL_URL = '/api/avatar/sapphire.glb';
 const CROSSFADE_MS = 400;
-
-// Default camera
-const CAM_DEFAULT = { x: 0, y: 1.3, z: 4.4 };
-const CAM_TARGET  = { x: 0, y: 1.1, z: 0 };
 const CAM_ZOOM_MIN = 2.0;
 const CAM_ZOOM_MAX = 8.0;
 
-// State -> animation track mapping
-const TRACK_MAP = {
-    idle:       'idle',
-    listening:  'listening',
-    processing: 'thinking',
-    thinking:   'thinking',
-    typing:     'thinking',
-    speaking:   'attention',
-    toolcall:   'attention2',
-    wakeword:   'attention',
-    happy:      'happy',
-    wave:       'wave',
-    error:      'idle',
-    agent:      'thinking',
-    cron:       'thinking',
+// Hardcoded fallback defaults (used when no config exists)
+const FALLBACK_TRACK_MAP = {
+    idle: 'idle', listening: 'listening', processing: 'thinking',
+    thinking: 'thinking', typing: 'thinking', speaking: 'attention',
+    toolcall: 'attention2', wakeword: 'attention', happy: 'happy',
+    wave: 'wave', error: 'idle', agent: 'thinking', cron: 'thinking',
 };
+const FALLBACK_IDLE_POOL = [
+    { track: 'idle', weight: 60, oneshot: false },
+    { track: 'defaultanim', weight: 20, oneshot: false },
+    { track: 'listening', weight: 8, oneshot: false },
+    { track: 'attention', weight: 5, oneshot: true },
+    { track: 'happy', weight: 4, oneshot: true },
+    { track: 'wave', weight: 3, oneshot: true },
+];
+const FALLBACK_CAMERA = { x: 0, y: 1.3, z: 4.4 };
+const FALLBACK_TARGET = { x: 0, y: 1.1, z: 0 };
 
-// State machine — priority-based with persist/duration
+// State machine — priority-based with persist/duration (not configurable)
 const STATES = {
     idle:       { priority: 0 },
     listening:  { priority: 30, persist: true },
@@ -47,7 +43,7 @@ const STATES = {
     wave:       { priority: 5,  duration: 4500 },
 };
 
-// force: true = always transitions, even through a persist state (used for "end" events)
+// force: true = always transitions, even through a persist state
 const TRANSITIONS = {
     [eventBus.Events.STT_RECORDING_START]:  { state: 'listening' },
     [eventBus.Events.STT_RECORDING_END]:    { state: 'processing', force: true },
@@ -69,26 +65,6 @@ const TRANSITIONS = {
     [eventBus.Events.CONTINUITY_TASK_COMPLETE]: { state: 'idle', force: true },
 };
 
-// Idle variety — weighted random picks when idle
-const IDLE_VARIANTS = [
-    { track: 'idle',         weight: 60 },  // most of the time, just breathe
-    { track: 'defaultanim',  weight: 20 },  // secondary idle
-    { track: 'listening',    weight: 8 },   // glance around
-    { track: 'attention',    weight: 5 },   // perk up briefly
-    { track: 'happy',        weight: 4 },   // little smile
-    { track: 'wave',         weight: 3 },   // rare wave
-];
-
-function pickIdleVariant() {
-    const total = IDLE_VARIANTS.reduce((s, v) => s + v.weight, 0);
-    let roll = Math.random() * total;
-    for (const v of IDLE_VARIANTS) {
-        roll -= v.weight;
-        if (roll <= 0) return v.track;
-    }
-    return 'idle';
-}
-
 // Track cleanup between sidebar reloads
 let _cleanup = null;
 
@@ -98,6 +74,51 @@ export async function init(container) {
     const canvas = container.querySelector('#avatar-canvas');
     const statusEl = container.querySelector('#avatar-status');
     if (!canvas) return;
+
+    // --- Load config from backend ---
+    let avatarConfig = {};
+    let modelFile = 'sapphire.glb';
+    let trackMap = { ...FALLBACK_TRACK_MAP };
+    let idlePool = [...FALLBACK_IDLE_POOL];
+    let greetingTrack = 'wave';
+    let camPos = { ...FALLBACK_CAMERA };
+    let camTarget = { ...FALLBACK_TARGET };
+
+    try {
+        const resp = await fetch('/api/plugin/avatar/config');
+        if (resp.ok) {
+            avatarConfig = await resp.json();
+            modelFile = avatarConfig.active_model || modelFile;
+            const modelCfg = (avatarConfig.models || {})[modelFile];
+            if (modelCfg) {
+                if (modelCfg.track_map) trackMap = { ...FALLBACK_TRACK_MAP, ...modelCfg.track_map };
+                if (modelCfg.idle_pool?.length) idlePool = modelCfg.idle_pool;
+                if (modelCfg.greeting_track !== undefined) greetingTrack = modelCfg.greeting_track;
+                if (modelCfg.camera) camPos = modelCfg.camera;
+                if (modelCfg.target) camTarget = modelCfg.target;
+            }
+        }
+    } catch (e) { /* use fallbacks */ }
+
+    const MODEL_URL = `/api/avatar/${modelFile}`;
+
+    // Build oneshot set from idle pool config
+    const ONESHOT_TRACKS = new Set(
+        idlePool.filter(v => v.oneshot).map(v => v.track)
+    );
+    // Also treat known oneshot animations as oneshot
+    for (const t of ['happy', 'wave', 'attention', 'attention2']) ONESHOT_TRACKS.add(t);
+
+    // Weighted random idle pick
+    function pickIdleVariant() {
+        const total = idlePool.reduce((s, v) => s + v.weight, 0);
+        let roll = Math.random() * total;
+        for (const v of idlePool) {
+            roll -= v.weight;
+            if (roll <= 0) return v.track;
+        }
+        return trackMap.idle || 'idle';
+    }
 
     // Dynamic imports (cached after first load)
     let THREE, GLTFLoader, OrbitControls;
@@ -120,13 +141,13 @@ export async function init(container) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Camera
+    // Camera — from config
     const camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-    camera.position.set(CAM_DEFAULT.x, CAM_DEFAULT.y, CAM_DEFAULT.z);
+    camera.position.set(camPos.x, camPos.y, camPos.z);
 
     // Orbit controls
     const controls = new OrbitControls(camera, canvas);
-    controls.target.set(CAM_TARGET.x, CAM_TARGET.y, CAM_TARGET.z);
+    controls.target.set(camTarget.x, camTarget.y, camTarget.z);
     controls.minDistance = CAM_ZOOM_MIN;
     controls.maxDistance = CAM_ZOOM_MAX;
     controls.enablePan = true;
@@ -134,14 +155,13 @@ export async function init(container) {
     controls.dampingFactor = 0.08;
     controls.rotateSpeed = 0.5;
     controls.panSpeed = 0.4;
-    // Limit vertical so you can't go under the floor
     controls.maxPolarAngle = Math.PI * 0.85;
     controls.update();
 
     // Double-click to reset camera
     canvas.addEventListener('dblclick', () => {
-        camera.position.set(CAM_DEFAULT.x, CAM_DEFAULT.y, CAM_DEFAULT.z);
-        controls.target.set(CAM_TARGET.x, CAM_TARGET.y, CAM_TARGET.z);
+        camera.position.set(camPos.x, camPos.y, camPos.z);
+        controls.target.set(camTarget.x, camTarget.y, camTarget.z);
         controls.update();
     });
 
@@ -184,15 +204,15 @@ export async function init(container) {
             actions[clip.name] = action;
         }
 
-        // Start with wave, then idle
-        if (actions.wave) {
-            const waveAction = actions.wave;
-            waveAction.setLoop(THREE.LoopOnce);
-            waveAction.play();
-            currentAction = waveAction;
-            mixer.addEventListener('finished', function onWaveDone(e) {
-                if (e.action === waveAction) {
-                    mixer.removeEventListener('finished', onWaveDone);
+        // Start with greeting track, then idle
+        const greetAction = greetingTrack ? actions[greetingTrack] : null;
+        if (greetAction) {
+            greetAction.setLoop(THREE.LoopOnce);
+            greetAction.play();
+            currentAction = greetAction;
+            mixer.addEventListener('finished', function onGreetDone(e) {
+                if (e.action === greetAction) {
+                    mixer.removeEventListener('finished', onGreetDone);
                     crossfadeTo('idle');
                 }
             });
@@ -207,11 +227,8 @@ export async function init(container) {
     }
 
     // --- Animation crossfade ---
-    // oneshot tracks play once then return to idle
-    const ONESHOT_TRACKS = new Set(['happy', 'wave', 'attention', 'attention2']);
-
     function crossfadeTo(stateName) {
-        const trackName = TRACK_MAP[stateName] || stateName;  // allow raw track names for idle variety
+        const trackName = trackMap[stateName] || stateName;  // allow raw track names for idle variety
         const action = actions[trackName];
         if (!action || currentAction === action) return;
 
@@ -241,27 +258,23 @@ export async function init(container) {
 
     function scheduleIdleVariant() {
         clearTimeout(idleTimer);
-        // Next variant in 8-20 seconds
         const delay = 8000 + Math.random() * 12000;
         idleTimer = setTimeout(() => {
             if (current !== 'idle') return;
             const track = pickIdleVariant();
             crossfadeTo(track);
-            // If it's a looping track (idle, defaultanim), schedule next switch
             if (!ONESHOT_TRACKS.has(track)) {
                 scheduleIdleVariant();
             }
-            // Oneshot tracks schedule via the 'finished' listener in crossfadeTo
         }, delay);
     }
 
     // --- State machine ---
-    let current = 'wave';
+    let current = greetingTrack ? 'wave' : 'idle';
     let resetTimer = null;
-    let _aiAnimLockUntil = 0;  // AI-triggered animations are protected until this timestamp
+    let _aiAnimLockUntil = 0;
 
     function setState(name, force = false) {
-        // AI-triggered animation guard — block all state changes during the lock window
         if (Date.now() < _aiAnimLockUntil) return;
 
         const state = STATES[name];
@@ -320,8 +333,8 @@ export async function init(container) {
 
         // Return to previous state when done
         const returnToPrev = () => {
-            if (currentAction !== action) return;  // something else took over
-            crossfadeTo(current);  // re-enter current state machine state
+            if (currentAction !== action) return;
+            crossfadeTo(current);
         };
 
         if (duration) {
@@ -344,8 +357,7 @@ export async function init(container) {
     function animate() {
         if (!running) return;
         requestAnimationFrame(animate);
-        const delta = clock.getDelta();
-        if (mixer) mixer.update(delta);
+        if (mixer) mixer.update(clock.getDelta());
         controls.update();
         resize();
         renderer.render(scene, camera);
@@ -357,6 +369,7 @@ export async function init(container) {
         running = false;
         clearTimeout(resetTimer);
         clearTimeout(idleTimer);
+        clearTimeout(_avatarReturnTimer);
         unsubs.forEach(fn => fn());
         controls.dispose();
         renderer.dispose();
