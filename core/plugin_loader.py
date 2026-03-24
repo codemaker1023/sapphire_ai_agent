@@ -1033,6 +1033,11 @@ class PluginLoader:
         """Get the PluginState helper for a plugin."""
         return PluginState(name)
 
+    def get_credentials(self):
+        """Get the credentials manager singleton. Convenience for plugins."""
+        from core.credentials_manager import credentials
+        return credentials
+
     # ── File watcher (dev mode) ──
 
     def start_watcher(self):

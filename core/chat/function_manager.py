@@ -820,14 +820,19 @@ class FunctionManager:
                 return result
 
             try:
-                # For plugin tools, inject plugin settings as 4th arg
+                # For plugin tools, inject plugin settings (4th arg) + credentials (5th arg)
                 plugin_settings = self._get_plugin_settings_for(function_name)
                 if plugin_settings is not None:
+                    from core.credentials_manager import credentials
                     try:
-                        result, success = executor(function_name, arguments, config, plugin_settings)
+                        result, success = executor(function_name, arguments, config, plugin_settings, credentials)
                     except TypeError:
-                        # Backward compat: tool doesn't accept 4th arg
-                        result, success = executor(function_name, arguments, config)
+                        try:
+                            # Backward compat: tool doesn't accept 5th arg
+                            result, success = executor(function_name, arguments, config, plugin_settings)
+                        except TypeError:
+                            # Backward compat: tool doesn't accept 4th arg
+                            result, success = executor(function_name, arguments, config)
                 else:
                     result, success = executor(function_name, arguments, config)
             except Exception as e:

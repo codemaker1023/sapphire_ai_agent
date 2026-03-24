@@ -1333,10 +1333,11 @@ async def plugin_route_dispatch(plugin_name: str, path: str, request: Request, _
         except Exception:
             body = {}
 
-    # Build handler kwargs: path params + body + settings + query params + request
+    # Build handler kwargs: path params + body + settings + credentials + query params + request
     settings = plugin_loader.get_plugin_settings(plugin_name)
+    credentials = plugin_loader.get_credentials()
     query_params = dict(request.query_params)
-    kwargs = {**path_params, "body": body, "settings": settings, "query": query_params, "request": request}
+    kwargs = {**path_params, "body": body, "settings": settings, "credentials": credentials, "query": query_params, "request": request}
 
     # Call handler (may be sync — run in threadpool)
     import asyncio
