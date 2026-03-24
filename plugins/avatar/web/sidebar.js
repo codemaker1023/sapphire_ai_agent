@@ -3,8 +3,15 @@ import * as eventBus from '/static/core/event-bus.js';
 
 const THREE_CDN = 'https://esm.sh/three@0.170.0';
 const GLTF_CDN = 'https://esm.sh/three@0.170.0/addons/loaders/GLTFLoader.js';
+const ORBIT_CDN = 'https://esm.sh/three@0.170.0/addons/controls/OrbitControls.js';
 const MODEL_URL = '/api/avatar/sapphire.glb';
 const CROSSFADE_MS = 400;
+
+// Default camera
+const CAM_DEFAULT = { x: 0, y: 1.3, z: 4.4 };
+const CAM_TARGET  = { x: 0, y: 1.1, z: 0 };
+const CAM_ZOOM_MIN = 2.0;
+const CAM_ZOOM_MAX = 8.0;
 
 // State -> animation track mapping
 const TRACK_MAP = {
@@ -62,23 +69,44 @@ const TRANSITIONS = {
     [eventBus.Events.CONTINUITY_TASK_COMPLETE]: { state: 'idle', force: true },
 };
 
+// Idle variety — weighted random picks when idle
+const IDLE_VARIANTS = [
+    { track: 'idle',         weight: 60 },  // most of the time, just breathe
+    { track: 'defaultanim',  weight: 20 },  // secondary idle
+    { track: 'listening',    weight: 8 },   // glance around
+    { track: 'attention',    weight: 5 },   // perk up briefly
+    { track: 'happy',        weight: 4 },   // little smile
+    { track: 'wave',         weight: 3 },   // rare wave
+];
+
+function pickIdleVariant() {
+    const total = IDLE_VARIANTS.reduce((s, v) => s + v.weight, 0);
+    let roll = Math.random() * total;
+    for (const v of IDLE_VARIANTS) {
+        roll -= v.weight;
+        if (roll <= 0) return v.track;
+    }
+    return 'idle';
+}
+
 // Track cleanup between sidebar reloads
 let _cleanup = null;
 
 export async function init(container) {
-    // Tear down previous instance if sidebar reloaded
     if (_cleanup) _cleanup();
 
     const canvas = container.querySelector('#avatar-canvas');
     const statusEl = container.querySelector('#avatar-status');
     if (!canvas) return;
 
-    // Dynamic import three.js from CDN (cached after first load)
-    let THREE, GLTFLoader;
+    // Dynamic imports (cached after first load)
+    let THREE, GLTFLoader, OrbitControls;
     try {
         THREE = await import(THREE_CDN);
         const gltfMod = await import(GLTF_CDN);
+        const orbitMod = await import(ORBIT_CDN);
         GLTFLoader = gltfMod.GLTFLoader;
+        OrbitControls = orbitMod.OrbitControls;
     } catch (e) {
         console.error('[Avatar] Failed to load three.js:', e);
         canvas.style.display = 'none';
@@ -86,20 +114,39 @@ export async function init(container) {
         return;
     }
 
-    // Scene setup — transparent background
+    // Scene
     const scene = new THREE.Scene();
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Camera — pulled back for full upper body + face
+    // Camera
     const camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-    camera.position.set(0, 1.3, 4.4);
-    camera.lookAt(0, 1.1, 0);
+    camera.position.set(CAM_DEFAULT.x, CAM_DEFAULT.y, CAM_DEFAULT.z);
+
+    // Orbit controls
+    const controls = new OrbitControls(camera, canvas);
+    controls.target.set(CAM_TARGET.x, CAM_TARGET.y, CAM_TARGET.z);
+    controls.minDistance = CAM_ZOOM_MIN;
+    controls.maxDistance = CAM_ZOOM_MAX;
+    controls.enablePan = true;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.rotateSpeed = 0.5;
+    controls.panSpeed = 0.4;
+    // Limit vertical so you can't go under the floor
+    controls.maxPolarAngle = Math.PI * 0.85;
+    controls.update();
+
+    // Double-click to reset camera
+    canvas.addEventListener('dblclick', () => {
+        camera.position.set(CAM_DEFAULT.x, CAM_DEFAULT.y, CAM_DEFAULT.z);
+        controls.target.set(CAM_TARGET.x, CAM_TARGET.y, CAM_TARGET.z);
+        controls.update();
+    });
 
     // Lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambient);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(2, 3, 2);
     scene.add(dirLight);
@@ -107,7 +154,7 @@ export async function init(container) {
     rimLight.position.set(-1, 2, -2);
     scene.add(rimLight);
 
-    // Resize handler
+    // Resize
     function resize() {
         const w = canvas.clientWidth;
         const h = canvas.clientHeight;
@@ -137,7 +184,7 @@ export async function init(container) {
             actions[clip.name] = action;
         }
 
-        // Start with wave, then crossfade to idle
+        // Start with wave, then idle
         if (actions.wave) {
             const waveAction = actions.wave;
             waveAction.setLoop(THREE.LoopOnce);
@@ -159,17 +206,17 @@ export async function init(container) {
         return;
     }
 
-    // Animation crossfade
+    // --- Animation crossfade ---
+    // oneshot tracks play once then return to idle
+    const ONESHOT_TRACKS = new Set(['happy', 'wave', 'attention', 'attention2']);
+
     function crossfadeTo(stateName) {
-        const trackName = TRACK_MAP[stateName] || 'idle';
+        const trackName = TRACK_MAP[stateName] || stateName;  // allow raw track names for idle variety
         const action = actions[trackName];
         if (!action || currentAction === action) return;
 
         action.reset();
-        action.setLoop(
-            trackName === 'happy' || trackName === 'wave' || trackName === 'attention'
-                ? THREE.LoopOnce : THREE.LoopRepeat
-        );
+        action.setLoop(ONESHOT_TRACKS.has(trackName) ? THREE.LoopOnce : THREE.LoopRepeat);
         action.clampWhenFinished = true;
 
         if (currentAction) {
@@ -177,9 +224,38 @@ export async function init(container) {
         }
         action.play();
         currentAction = action;
+
+        // When a oneshot finishes during idle, pick next idle variant
+        if (ONESHOT_TRACKS.has(trackName) && current === 'idle') {
+            mixer.addEventListener('finished', function onDone(e) {
+                if (e.action === action) {
+                    mixer.removeEventListener('finished', onDone);
+                    if (current === 'idle') scheduleIdleVariant();
+                }
+            });
+        }
     }
 
-    // State machine
+    // --- Idle variety system ---
+    let idleTimer = null;
+
+    function scheduleIdleVariant() {
+        clearTimeout(idleTimer);
+        // Next variant in 8-20 seconds
+        const delay = 8000 + Math.random() * 12000;
+        idleTimer = setTimeout(() => {
+            if (current !== 'idle') return;
+            const track = pickIdleVariant();
+            crossfadeTo(track);
+            // If it's a looping track (idle, defaultanim), schedule next switch
+            if (!ONESHOT_TRACKS.has(track)) {
+                scheduleIdleVariant();
+            }
+            // Oneshot tracks schedule via the 'finished' listener in crossfadeTo
+        }, delay);
+    }
+
+    // --- State machine ---
     let current = 'wave';
     let resetTimer = null;
 
@@ -191,16 +267,21 @@ export async function init(container) {
         if (!force && name !== 'idle' && cur && state.priority < cur.priority && cur.persist) return;
 
         clearTimeout(resetTimer);
+        clearTimeout(idleTimer);
         current = name;
         crossfadeTo(name);
         if (statusEl) statusEl.textContent = name === 'idle' ? '' : name;
 
+        if (name === 'idle') {
+            scheduleIdleVariant();
+        }
+
         if (state.duration) {
-            resetTimer = setTimeout(() => setState('idle'), state.duration);
+            resetTimer = setTimeout(() => setState('idle', true), state.duration);
         }
     }
 
-    // Wire SSE events — store unsubscribe functions for cleanup
+    // Wire SSE events
     const unsubs = [];
     for (const [event, transition] of Object.entries(TRANSITIONS)) {
         const unsub = eventBus.on(event, () => setState(transition.state, transition.force));
@@ -214,22 +295,25 @@ export async function init(container) {
     function animate() {
         if (!running) return;
         requestAnimationFrame(animate);
-        if (mixer) mixer.update(clock.getDelta());
+        const delta = clock.getDelta();
+        if (mixer) mixer.update(delta);
+        controls.update();
         resize();
         renderer.render(scene, camera);
     }
     animate();
 
-    // Cleanup function for re-init or removal
+    // Cleanup
     _cleanup = () => {
         running = false;
         clearTimeout(resetTimer);
+        clearTimeout(idleTimer);
         unsubs.forEach(fn => fn());
+        controls.dispose();
         renderer.dispose();
         _cleanup = null;
     };
 
-    // Auto-cleanup if DOM is removed
     const observer = new MutationObserver(() => {
         if (!document.contains(canvas)) {
             if (_cleanup) _cleanup();

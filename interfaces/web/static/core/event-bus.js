@@ -146,7 +146,7 @@ export function off(eventType, handler) {
 /**
  * Dispatch an event to all registered handlers
  */
-function dispatch(eventType, data, timestamp) {
+export function dispatch(eventType, data, timestamp) {
     const set = handlers.get(eventType);
     if (set) {
         for (const handler of set) {

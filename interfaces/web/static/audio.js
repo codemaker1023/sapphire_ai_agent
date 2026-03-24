@@ -1,6 +1,7 @@
 // audio.js - Audio lifecycle with native WAV recording (no server-side ffmpeg needed)
 import * as ui from './ui.js';
 import * as api from './api.js';
+import { dispatch, Events } from './core/event-bus.js';
 
 let audioContext, mediaStream, sourceNode, processorNode;
 let audioChunks = [];
@@ -374,6 +375,7 @@ export const handlePress = async (btn) => {
         ui.showStatus();
         ui.updateStatus('Recording...');
         signalMicActive(true);
+        dispatch(Events.STT_RECORDING_START, { source: 'browser' });
     }
 };
 
@@ -382,9 +384,11 @@ export const handleRelease = async (btn, triggerSendFn) => {
     isRec = false;
     const blob = await stopRec();
     btn.classList.remove('recording');
-    
+    dispatch(Events.STT_RECORDING_END, { source: 'browser' });
+
     if (blob && blob.size > 1000) {
         ui.updateStatus('Transcribing...');
+        dispatch(Events.STT_PROCESSING, { source: 'browser' });
         try {
             const response = await api.postAudio(blob);
             // /api/transcribe manages _web_active in its own finally block
