@@ -232,20 +232,24 @@ class StreamingChat:
                         
                         if event_type == "content":
                             text = event.get("text", "")
+                            # Close thinking tag if transitioning from think to prose
+                            if in_thinking:
+                                yield {"type": "content", "text": "</think>\n\n"}
+                                in_thinking = False
                             current_content += text
                             yield {"type": "content", "text": text}
-                        
+
                         elif event_type == "thinking":
                             # Thinking from Claude - emit as content with tags for UI
                             text = event.get("text", "")
                             current_thinking += text
-                            
+
                             # Emit thinking wrapped in tags for UI rendering
                             if not in_thinking:
                                 yield {"type": "content", "text": "<think>"}
                                 in_thinking = True
                             yield {"type": "content", "text": text}
-                        
+
                         elif event_type == "tool_call":
                             # Close thinking tag if open before tool calls
                             if in_thinking:
@@ -627,9 +631,12 @@ class StreamingChat:
                     
                     if event_type == "content":
                         chunk = event.get("text", "")
+                        if in_thinking:
+                            yield {"type": "content", "text": "</think>\n\n"}
+                            in_thinking = False
                         final_content += chunk
                         yield {"type": "content", "text": chunk}
-                    
+
                     elif event_type == "thinking":
                         text = event.get("text", "")
                         final_thinking += text

@@ -31,7 +31,7 @@ export async function handleSend() {
         return;
     }
 
-    dispatch(Events.USER_SENT);
+    dispatch(Events.USER_SENT, { text: txt });
 
     const abortController = new AbortController();
     setAbortController(abortController);

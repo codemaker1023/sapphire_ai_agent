@@ -1,7 +1,7 @@
 // 3D Avatar — threejs GLTF with animation blending driven by SSE events
 import * as eventBus from '/static/core/event-bus.js';
 import * as audio from '/static/audio.js';
-import { triggerSendWithText } from '/static/handlers/send-handlers.js';
+import { triggerSendWithText, handleStop } from '/static/handlers/send-handlers.js';
 import { createEnvironment } from './environment.js';
 import { createCameraOrbitSystem } from './camera-orbits.js';
 
@@ -138,6 +138,7 @@ export async function init(container) {
     // Early cleanup — covers cases where Three.js or model loading fails
     _cleanup = () => {
         clearInterval(_micPoll);
+        _chatUnsubs.forEach(fn => fn());
         document.removeEventListener('keydown', _onEscKey);
         document.removeEventListener('fullscreenchange', _onFsChange);
         if (displayMode !== 'sidebar') {
@@ -202,6 +203,107 @@ export async function init(container) {
         });
         // Poll mic state while in expanded mode
         _micPoll = setInterval(updateMicState, 300);
+    }
+
+    // --- Chat overlay (WoW-style) ---
+    const chatOverlay = container.querySelector('#avatar-chat');
+    const chatLog = container.querySelector('#avatar-chat-log');
+    const chatToggle = container.querySelector('#avatar-chat-toggle');
+    const chatStop = container.querySelector('#avatar-chat-stop');
+    const chatVolume = container.querySelector('#avatar-chat-volume');
+    let _chatUnsubs = [];
+    let _aiStreamEl = null;  // current streaming message element
+    let _thinkOpen = false;  // true while inside <think> block
+    const MAX_MESSAGES = 50;
+
+    if (chatOverlay) {
+        // Collapse/expand toggle
+        chatToggle?.addEventListener('click', () => {
+            chatOverlay.classList.toggle('collapsed');
+            chatToggle.textContent = chatOverlay.classList.contains('collapsed') ? '\u25B2' : '\u25BC';
+        });
+
+        // Stop generation
+        chatStop?.addEventListener('click', () => handleStop());
+
+        // Volume slider
+        if (chatVolume) {
+            chatVolume.value = Math.round(audio.getVolume() * 100);
+            chatVolume.addEventListener('input', () => {
+                audio.setVolume(chatVolume.value / 100);
+            });
+        }
+
+        function addChatMsg(role, text) {
+            if (!chatLog) return;
+            const el = document.createElement('div');
+            el.className = `chat-msg chat-msg-${role}`;
+            el.textContent = text;
+            chatLog.appendChild(el);
+            // Trim old messages
+            while (chatLog.children.length > MAX_MESSAGES) chatLog.removeChild(chatLog.firstChild);
+            chatLog.scrollTop = chatLog.scrollHeight;
+            return el;
+        }
+
+        // User sent a message
+        _chatUnsubs.push(eventBus.on(eventBus.Events.USER_SENT, (data) => {
+            if (data?.text) addChatMsg('user', data.text);
+        }));
+
+        // AI streaming chunks
+        // Backend sends think content wrapped in <think>...</think> as type:content chunks.
+        // The </think> only arrives when the LLM finishes thinking (done event).
+        // Strategy: track open/close tags, only display text outside think blocks.
+        _chatUnsubs.push(eventBus.on(eventBus.Events.CHAT_CHUNK, (data) => {
+            if (!data?.text) return;
+            let text = data.text;
+
+            // Check for think open/close tags in this chunk
+            if (text.includes('<think>') || text.includes('<seed:think')) {
+                _thinkOpen = true;
+                // Strip everything from <think> onward in this chunk
+                text = text.replace(/<(?:seed:)?think[^>]*>[\s\S]*/i, '');
+            }
+            if (_thinkOpen && (text.includes('</think>') || text.includes('</seed:think'))) {
+                _thinkOpen = false;
+                // Keep everything after the closing tag
+                text = text.replace(/[\s\S]*<\/[^>]*think[^>]*>/i, '');
+            }
+
+            // If inside think block, skip entirely
+            if (_thinkOpen) return;
+
+            // Strip avatar tags
+            text = text.replace(/<<avatar:\s*[a-zA-Z0-9_]+(?:\s+\d+(?:\.\d+)?s)?>>/g, '');
+            // Strip any stray think tags (edge case: open+close in same chunk)
+            text = text.replace(/<\/?(?:seed:)?think[^>]*>/gi, '');
+
+            if (text && text.trim()) {
+                if (!_aiStreamEl) _aiStreamEl = addChatMsg('ai', '');
+                _aiStreamEl.textContent += text;
+                chatLog.scrollTop = chatLog.scrollHeight;
+            }
+        }));
+
+        // AI done typing — finalize stream element
+        _chatUnsubs.push(eventBus.on(eventBus.Events.AI_TYPING_END, () => {
+            _aiStreamEl = null;
+            _thinkOpen = false;
+        }));
+
+        // AI starts — show stop button, reset stream state
+        _chatUnsubs.push(eventBus.on(eventBus.Events.AI_TYPING_START, () => {
+            _aiStreamEl = null;
+            _thinkOpen = false;
+            chatStop?.classList.add('visible');
+        }));
+
+        // AI done or error — hide stop button
+        const hideStop = () => chatStop?.classList.remove('visible');
+        _chatUnsubs.push(eventBus.on(eventBus.Events.AI_TYPING_END, hideStop));
+        _chatUnsubs.push(eventBus.on(eventBus.Events.LLM_ERROR, hideStop));
+        _chatUnsubs.push(eventBus.on(eventBus.Events.TTS_STOPPED, hideStop));
     }
 
     // --- Load config from backend ---
@@ -570,6 +672,7 @@ export async function init(container) {
         clearTimeout(_avatarReturnTimer);
         clearInterval(_micPoll);
         unsubs.forEach(fn => fn());
+        _chatUnsubs.forEach(fn => fn());
         orbitSystem.cleanup();
         controls.dispose();
         renderer.dispose();

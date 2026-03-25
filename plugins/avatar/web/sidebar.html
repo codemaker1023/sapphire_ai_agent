@@ -94,6 +94,139 @@
         align-items: center;
         justify-content: center;
     }
+
+    /* ═══ Chat overlay (WoW-style) ═══ */
+    #avatar-chat {
+        display: none;
+        position: absolute;
+        bottom: 16px;
+        left: 16px;
+        z-index: 4;
+        width: 800px;
+        max-width: 30vw;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #avatar-display.avatar-fullwindow #avatar-chat,
+    #avatar-display:fullscreen #avatar-chat {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Chat log */
+    #avatar-chat-log {
+        max-height: 260px;
+        overflow-y: auto;
+        padding: 10px 12px;
+        background: rgba(0,0,0,0.35);
+        backdrop-filter: blur(4px);
+        border-radius: 8px 8px 0 0;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.15) transparent;
+        transition: max-height 0.3s, padding 0.3s, opacity 0.3s;
+    }
+    #avatar-chat.collapsed #avatar-chat-log {
+        max-height: 0;
+        padding: 0 12px;
+        opacity: 0;
+        overflow: hidden;
+    }
+
+    .chat-msg {
+        margin: 3px 0;
+        font-size: 13px;
+        line-height: 1.4;
+        word-wrap: break-word;
+    }
+    .chat-msg-user {
+        color: rgba(180,220,255,0.9);
+    }
+    .chat-msg-user::before {
+        content: 'You: ';
+        color: rgba(120,170,255,0.7);
+        font-weight: 600;
+    }
+    .chat-msg-ai {
+        color: rgba(220,220,230,0.85);
+    }
+    .chat-msg-ai::before {
+        content: 'Sapphire: ';
+        color: rgba(74,158,255,0.7);
+        font-weight: 600;
+    }
+    .chat-msg-system {
+        color: rgba(180,180,180,0.5);
+        font-size: 11px;
+        font-style: italic;
+    }
+
+    /* Chat toolbar bar */
+    #avatar-chat-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: rgba(0,0,0,0.4);
+        backdrop-filter: blur(4px);
+        border-radius: 0 0 8px 8px;
+    }
+    #avatar-chat.collapsed #avatar-chat-bar {
+        border-radius: 8px;
+    }
+
+    .chat-bar-btn {
+        border: none;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.1);
+        color: rgba(255,255,255,0.7);
+        font-size: 12px;
+        padding: 4px 10px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .chat-bar-btn:hover {
+        background: rgba(255,255,255,0.2);
+        color: #fff;
+    }
+    .chat-bar-btn.stop-btn {
+        color: rgba(255,100,100,0.9);
+        display: none;
+    }
+    .chat-bar-btn.stop-btn.visible {
+        display: inline-block;
+    }
+
+    #avatar-chat-volume {
+        width: 70px;
+        height: 3px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(255,255,255,0.15);
+        border-radius: 2px;
+        outline: none;
+        cursor: pointer;
+    }
+    #avatar-chat-volume::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: rgba(74,158,255,0.8);
+        cursor: pointer;
+    }
+    #avatar-chat-volume::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: rgba(74,158,255,0.8);
+        border: none;
+        cursor: pointer;
+    }
+    .chat-bar-label {
+        color: rgba(255,255,255,0.4);
+        font-size: 11px;
+        user-select: none;
+    }
+    .chat-bar-spacer { flex: 1; }
 </style>
 <div id="avatar-display" style="position:relative; width:100%; padding:0;">
     <canvas id="avatar-canvas" style="width:100%; height:280px; display:block; border-radius:6px;"></canvas>
@@ -103,5 +236,18 @@
         <button class="avatar-ctrl-btn" id="avatar-btn-fullscreen" title="Fullscreen">&#x26F6;</button>
     </div>
     <button id="avatar-mic" title="Hold to talk">&#x1F3A4;</button>
+
+    <!-- Chat overlay (WoW-style) -->
+    <div id="avatar-chat">
+        <div id="avatar-chat-log"></div>
+        <div id="avatar-chat-bar">
+            <button class="chat-bar-btn" id="avatar-chat-toggle" title="Toggle chat log">&#x25BC;</button>
+            <button class="chat-bar-btn stop-btn" id="avatar-chat-stop" title="Stop generation">Stop</button>
+            <span class="chat-bar-spacer"></span>
+            <span class="chat-bar-label">Vol</span>
+            <input type="range" id="avatar-chat-volume" min="0" max="100" value="80" title="Volume">
+        </div>
+    </div>
+
     <div id="avatar-status" style="position:absolute; bottom:4px; left:0; right:0; text-align:center; font-size:0.7rem; color:var(--text-muted); pointer-events:none;"></div>
 </div>

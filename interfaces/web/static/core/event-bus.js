@@ -247,9 +247,10 @@ export const Events = {
     AGENT_COMPLETED: 'agent_completed',
     AGENT_DISMISSED: 'agent_dismissed',
 
-    // User interaction events (avatar state triggers)
+    // User interaction events (avatar state triggers + overlay)
     USER_TYPING: 'user_typing',       // User is typing in chat input
-    USER_SENT: 'user_sent',           // User sent a message
+    USER_SENT: 'user_sent',           // User sent a message — data: {text}
+    CHAT_CHUNK: 'chat_chunk',         // AI streaming text chunk — data: {text}
 
     // Connection events
     CONNECTED: 'connected',           // Server confirms SSE subscription

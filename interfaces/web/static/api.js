@@ -240,6 +240,7 @@ function _wrapChunkWithAvatarScan(onChunk) {
     let buf = '';
     return (chunk) => {
         onChunk(chunk);
+        dispatch('chat_chunk', { text: chunk });
         buf += chunk;
         const re = /<<avatar:\s*([a-zA-Z0-9_]+)(?:\s+(\d+(?:\.\d+)?s))?>>/g;
         for (const match of buf.matchAll(re)) {
