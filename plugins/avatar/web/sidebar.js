@@ -269,7 +269,7 @@ export async function init(container) {
     const env = createEnvironment(scene, THREE, renderer);
 
     // Camera — from config
-    const camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 200);
     camera.position.set(camPos.x, camPos.y, camPos.z);
 
     // Orbit controls
@@ -388,7 +388,7 @@ export async function init(container) {
         };
 
         // Expand zoom limits for environment exploration
-        controls.maxDistance = 25;
+        controls.maxDistance = 35;
 
     } catch (e) {
         console.error('[Avatar] Failed to load model:', e);
