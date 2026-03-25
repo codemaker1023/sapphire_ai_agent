@@ -120,10 +120,9 @@ export function createCameraOrbitSystem(camera, controls, THREE) {
     let enabled = true;
     let active = false;
     let _time = 0;
-    let _idleTime = 0;
     let _orbit = pickOrbit();
-    let _userInteracting = false;
     let _lastUserInput = 0;
+    let _nextSwitchAt = 30 + Math.random() * 30;
 
     // Model info — set after model loads
     let modelCenter = { x: 0, y: 1.15, z: 0 };
@@ -131,12 +130,14 @@ export function createCameraOrbitSystem(camera, controls, THREE) {
     let baseDist = 5.5;
     let baseHeight = 1.3;  // camera Y when looking at upper body (~50% up)
 
-    const IDLE_DELAY = 8;          // seconds of no input before orbit starts
-    const TRANSITION_SPEED = 1.5;  // seconds to blend into orbit
-    let _blendFactor = 0;          // 0 = user camera, 1 = orbit camera
+    const IDLE_DELAY = 8;              // seconds of no input before orbit starts
+    const TRANSITION_SPEED = 1.5;      // seconds to blend from user camera into orbit
+    const ORBIT_CROSSFADE = 3.0;       // seconds to crossfade between orbit patterns
+    let _blendFactor = 0;              // 0 = user camera, 1 = orbit camera
 
-    // Saved user camera state for blending back
-    let _userCamPos = null;
+    // Orbit crossfade state — smooth transition between patterns
+    let _crossfadeTime = 0;            // time into crossfade (0 = start, >= ORBIT_CROSSFADE = done)
+    let _crossfadeFrom = null;         // snapshot: {x, y, z} of camera pos when crossfade started
 
     // --- User interaction detection ---
     const _onInput = () => {
@@ -176,6 +177,26 @@ export function createCameraOrbitSystem(camera, controls, THREE) {
         controls.update();
     }
 
+    function _orbitTarget() {
+        // Get where the current orbit wants the camera
+        const params = { speed: _orbit.speed, baseDist, baseHeight, modelHeight };
+        const o = _orbit.fn(_time, params);
+        return {
+            x: modelCenter.x + Math.sin(o.angle) * o.radius,
+            y: o.height,
+            z: modelCenter.z + Math.cos(o.angle) * o.radius,
+        };
+    }
+
+    function _switchOrbit() {
+        // Snapshot current camera position for crossfade
+        _crossfadeFrom = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        _crossfadeTime = 0;
+        _orbit = pickOrbit();
+        // Don't reset _time — let it flow continuously so sine functions don't snap
+        _nextSwitchAt = _time + 30 + Math.random() * 30;
+    }
+
     function update(delta) {
         if (!enabled) return;
 
@@ -183,51 +204,51 @@ export function createCameraOrbitSystem(camera, controls, THREE) {
         const idleSec = (now - _lastUserInput) / 1000;
 
         if (!active && idleSec > IDLE_DELAY) {
-            // Start orbiting
+            // Start orbiting — blend from user's camera position
             active = true;
-            _time = 0;
             _blendFactor = 0;
+            _crossfadeFrom = null;
             _orbit = pickOrbit();
-            _userCamPos = camera.position.clone();
+            _nextSwitchAt = _time + 30 + Math.random() * 30;
         }
 
         if (!active) return;
 
         _time += delta;
 
-        // Blend in smoothly
+        // Blend in from user camera (initial entry into orbit mode)
         if (_blendFactor < 1) {
             _blendFactor = Math.min(1, _blendFactor + delta / TRANSITION_SPEED);
         }
 
-        const params = {
-            speed: _orbit.speed,
-            baseDist,
-            baseHeight,
-            modelHeight,
-        };
+        // Calculate orbit target position
+        const target = _orbitTarget();
 
-        const o = _orbit.fn(_time, params);
+        // Apply crossfade between orbit patterns (if mid-transition)
+        let finalX = target.x, finalY = target.y, finalZ = target.z;
+        if (_crossfadeFrom && _crossfadeTime < ORBIT_CROSSFADE) {
+            _crossfadeTime += delta;
+            const t = Math.min(1, _crossfadeTime / ORBIT_CROSSFADE);
+            const ease = t * t * (3 - 2 * t);  // smoothstep
+            finalX = _crossfadeFrom.x + (target.x - _crossfadeFrom.x) * ease;
+            finalY = _crossfadeFrom.y + (target.y - _crossfadeFrom.y) * ease;
+            finalZ = _crossfadeFrom.z + (target.z - _crossfadeFrom.z) * ease;
+            if (t >= 1) _crossfadeFrom = null;  // crossfade done
+        }
 
-        // Convert orbit coords to world position
-        const targetX = modelCenter.x + Math.sin(o.angle) * o.radius;
-        const targetZ = modelCenter.z + Math.cos(o.angle) * o.radius;
-        const targetY = o.height;
-
-        // Smooth blend from current position
-        const ease = _blendFactor * _blendFactor * (3 - 2 * _blendFactor); // smoothstep
-        camera.position.x += (targetX - camera.position.x) * ease * delta * 2;
-        camera.position.y += (targetY - camera.position.y) * ease * delta * 2;
-        camera.position.z += (targetZ - camera.position.z) * ease * delta * 2;
+        // Blend from user camera position (entry) or follow orbit (steady state)
+        const entryEase = _blendFactor * _blendFactor * (3 - 2 * _blendFactor);
+        camera.position.x += (finalX - camera.position.x) * entryEase * delta * 2;
+        camera.position.y += (finalY - camera.position.y) * entryEase * delta * 2;
+        camera.position.z += (finalZ - camera.position.z) * entryEase * delta * 2;
 
         // Target stays on upper body
         const lookY = modelCenter.y + modelHeight * 0.15;
         controls.target.set(modelCenter.x, lookY, modelCenter.z);
 
-        // Switch to a new orbit pattern every 30-60 seconds
-        if (_time > 30 + Math.random() * 30) {
-            _time = 0;
-            _orbit = pickOrbit();
+        // Switch orbit pattern on schedule
+        if (_time > _nextSwitchAt) {
+            _switchOrbit();
         }
     }
 
