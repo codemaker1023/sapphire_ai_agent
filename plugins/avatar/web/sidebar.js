@@ -4,6 +4,7 @@ import * as audio from '/static/audio.js';
 import { triggerSendWithText, handleStop } from '/static/handlers/send-handlers.js';
 import { createEnvironment } from './environment.js';
 import { createCameraOrbitSystem } from './camera-orbits.js';
+import { createPlayerController } from './player-controller.js';
 
 const THREE_CDN = 'https://esm.sh/three@0.170.0';
 const GLTF_CDN = 'https://esm.sh/three@0.170.0/addons/loaders/GLTFLoader.js';
@@ -89,6 +90,7 @@ export async function init(container) {
     const btnFullscreen = container.querySelector('#avatar-btn-fullscreen');
     let displayMode = 'sidebar';
     let _onDisplayModeChange = null;  // set after scene is ready
+    let _isPlayerMode = () => false;  // set after player controller is created
 
     function setDisplayMode(mode) {
         if (mode === displayMode) return;
@@ -123,6 +125,8 @@ export async function init(container) {
 
     const _onEscKey = (e) => {
         if (e.key === 'Escape' && displayMode === 'fullwindow') {
+            // Don't collapse fullwindow if ESC is just releasing pointer lock in player mode
+            if (_isPlayerMode()) return;
             setDisplayMode('sidebar');
         }
     };
@@ -397,18 +401,39 @@ export async function init(container) {
     // Camera orbit system
     const orbitSystem = createCameraOrbitSystem(camera, controls, THREE);
 
+    // Player controller (WASD + mouse look)
+    const playerCtrl = createPlayerController(camera, controls, canvas, THREE);
+    _isPlayerMode = () => playerCtrl.isEnabled();
+
     // Orbit toggle button
     const btnOrbit = container.querySelector('#avatar-btn-orbit');
     if (btnOrbit) {
         btnOrbit.classList.add('orbit-active');  // on by default
         btnOrbit.addEventListener('click', () => {
+            if (playerCtrl.isEnabled()) return;  // can't orbit in player mode
             const on = orbitSystem.toggle();
             btnOrbit.classList.toggle('orbit-active', on);
         });
     }
 
-    // Double-click to reset camera
+    // Player mode toggle button
+    const btnPlayer = container.querySelector('#avatar-btn-player');
+    if (btnPlayer) {
+        btnPlayer.addEventListener('click', () => {
+            const on = playerCtrl.toggle();
+            btnPlayer.classList.toggle('player-active', on);
+            displayEl.classList.toggle('player-mode', on);
+            // Disable orbit when entering player mode
+            if (on && orbitSystem.isEnabled()) {
+                orbitSystem.toggle();
+                btnOrbit?.classList.remove('orbit-active');
+            }
+        });
+    }
+
+    // Double-click to reset camera (only in orbit mode)
     canvas.addEventListener('dblclick', () => {
+        if (playerCtrl.isEnabled()) return;
         camera.position.set(camPos.x, camPos.y, camPos.z);
         controls.target.set(camTarget.x, camTarget.y, camTarget.z);
         controls.update();
@@ -682,8 +707,12 @@ export async function init(container) {
         const delta = clock.getDelta();
         if (mixer) mixer.update(delta);
         env.update(delta);
-        orbitSystem.update(delta);
-        controls.update();
+        if (playerCtrl.isEnabled()) {
+            playerCtrl.update(delta);
+        } else {
+            orbitSystem.update(delta);
+            controls.update();
+        }
         resize();
         renderer.render(scene, camera);
     }
@@ -698,6 +727,7 @@ export async function init(container) {
         clearInterval(_micPoll);
         unsubs.forEach(fn => fn());
         _chatUnsubs.forEach(fn => fn());
+        playerCtrl.cleanup();
         orbitSystem.cleanup();
         controls.dispose();
         renderer.dispose();

@@ -59,9 +59,29 @@
     .avatar-ctrl-btn:hover {
         background: rgba(74,158,255,0.6);
     }
-    .avatar-ctrl-btn.orbit-active {
+    .avatar-ctrl-btn.orbit-active,
+    .avatar-ctrl-btn.player-active {
         background: rgba(74,158,255,0.35);
         border: 1px solid rgba(74,158,255,0.5);
+    }
+
+    /* Crosshair in player mode */
+    #avatar-crosshair {
+        display: none;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.5);
+        box-shadow: 0 0 4px rgba(255,255,255,0.2);
+        pointer-events: none;
+        z-index: 5;
+    }
+    #avatar-display.player-mode #avatar-crosshair {
+        display: block;
     }
 
     /* Fullwindow STT mic */
@@ -242,10 +262,12 @@
             padding: 0 6px; cursor: pointer; backdrop-filter: blur(4px);
             outline: none;
         "></select>
+        <button class="avatar-ctrl-btn" id="avatar-btn-player" title="Player mode (WASD)">&#x1F6B6;</button>
         <button class="avatar-ctrl-btn" id="avatar-btn-orbit" title="Toggle auto-orbit">&#x27F3;</button>
         <button class="avatar-ctrl-btn" id="avatar-btn-expand" title="Expand">&#x2922;</button>
         <button class="avatar-ctrl-btn" id="avatar-btn-fullscreen" title="Fullscreen">&#x26F6;</button>
     </div>
+    <div id="avatar-crosshair"></div>
     <button id="avatar-mic" title="Hold to talk">&#x1F3A4;</button>
 
     <!-- Chat overlay (WoW-style) -->
