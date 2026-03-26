@@ -59,6 +59,18 @@
     .avatar-ctrl-btn:hover {
         background: rgba(74,158,255,0.6);
     }
+    /* Hide player button + location dropdown in sidebar mode (only show expanded) */
+    #avatar-btn-player,
+    #avatar-location-select {
+        display: none;
+    }
+    #avatar-display.avatar-fullwindow #avatar-btn-player,
+    #avatar-display:fullscreen #avatar-btn-player,
+    #avatar-display.avatar-fullwindow #avatar-location-select,
+    #avatar-display:fullscreen #avatar-location-select {
+        display: flex;
+    }
+
     .avatar-ctrl-btn.orbit-active,
     .avatar-ctrl-btn.player-active {
         background: rgba(74,158,255,0.35);

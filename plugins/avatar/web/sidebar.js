@@ -90,7 +90,8 @@ export async function init(container) {
     const btnFullscreen = container.querySelector('#avatar-btn-fullscreen');
     let displayMode = 'sidebar';
     let _onDisplayModeChange = null;  // set after scene is ready
-    let _isPlayerMode = () => false;  // set after player controller is created
+    let _isPlayerMode = () => false;   // set after player controller is created
+    let _setPlayerMode = null;        // set after player controller is created
 
     function setDisplayMode(mode) {
         if (mode === displayMode) return;
@@ -103,6 +104,8 @@ export async function init(container) {
             canvas.style.height = '280px';
             if (btnExpand) { btnExpand.innerHTML = '&#x2922;'; btnExpand.title = 'Expand'; }
             if (btnFullscreen) btnFullscreen.style.display = '';
+            // Exit player mode and reset camera
+            if (_isPlayerMode()) _setPlayerMode?.(false);
         } else if (mode === 'fullwindow') {
             displayEl.classList.add('avatar-fullwindow');
             canvas.style.height = '100%';
@@ -124,10 +127,15 @@ export async function init(container) {
     btnFullscreen?.addEventListener('click', () => setDisplayMode('fullscreen'));
 
     const _onEscKey = (e) => {
-        if (e.key === 'Escape' && displayMode === 'fullwindow') {
-            // Don't collapse fullwindow if ESC is just releasing pointer lock in player mode
-            if (_isPlayerMode()) return;
-            setDisplayMode('sidebar');
+        if (e.key === 'Escape' && displayMode !== 'sidebar') {
+            // First ESC: exit player mode. Second ESC: exit fullwindow.
+            if (_isPlayerMode()) {
+                _setPlayerMode?.(false);
+                return;
+            }
+            if (displayMode === 'fullwindow') {
+                setDisplayMode('sidebar');
+            }
         }
     };
     const _onFsChange = () => {
@@ -436,6 +444,7 @@ export async function init(container) {
     // Player controller (WASD + mouse look)
     const playerCtrl = createPlayerController(camera, controls, canvas, THREE);
     _isPlayerMode = () => playerCtrl.isEnabled();
+    _setPlayerMode = setPlayerMode;
 
     // Orbit toggle button
     const btnOrbit = container.querySelector('#avatar-btn-orbit');
@@ -605,6 +614,12 @@ export async function init(container) {
             defaultAmbient.visible = !expanded;
             dirLight.visible = !expanded;
             // Rim light stays on always — it's her signature
+            // Reset camera to default framing when returning to sidebar
+            if (!expanded) {
+                camera.position.set(camPos.x, camPos.y, camPos.z);
+                controls.target.set(camTarget.x, camTarget.y, camTarget.z);
+                controls.update();
+            }
         };
 
         // Expand zoom limits for environment exploration
