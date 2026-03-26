@@ -349,8 +349,9 @@ async def load_game_state(chat_name: str, request: Request, _=Depends(require_lo
     saved_messages = save_data.get("messages")
     if saved_messages is not None:
         session_manager = system.llm_chat.session_manager
-        session_manager.current_chat.messages = saved_messages
-        session_manager._save_current_chat()
+        with session_manager._lock:
+            session_manager.current_chat.messages = saved_messages
+            session_manager._save_current_chat()
         logger.info(f"[STORY] Quickloaded slot {slot}: {len(saved_messages)} messages + state restored")
 
     return {"status": "loaded", "slot": slot, "turn": save_data.get("turn", 0), "timestamp": save_data.get("timestamp")}

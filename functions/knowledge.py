@@ -1244,6 +1244,14 @@ def _save_knowledge(category, content, description=None, scope='default'):
     else:
         tab_id = create_tab(category, scope, description, tab_type='ai')
         if not tab_id:
+            # Race condition: another thread created it between our SELECT and INSERT
+            with _get_connection() as conn2:
+                cursor2 = conn2.cursor()
+                cursor2.execute('SELECT id FROM knowledge_tabs WHERE LOWER(name) = LOWER(?) AND scope = ?',
+                               (category, scope))
+                row2 = cursor2.fetchone()
+            tab_id = row2[0] if row2 else None
+        if not tab_id:
             return f"Failed to create category '{category}'.", False
 
     # Chunk if needed

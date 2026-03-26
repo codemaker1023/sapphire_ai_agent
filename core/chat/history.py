@@ -1042,8 +1042,9 @@ class ChatSessionManager:
     def add_user_message(self, content: Union[str, List[Dict[str, Any]]], persona: Optional[str] = None):
         if persona is None:
             persona = self.current_settings.get("persona")
-        self.current_chat.add_user_message(content, persona=persona)
-        self._save_current_chat()
+        with self._lock:
+            self.current_chat.add_user_message(content, persona=persona)
+            self._save_current_chat()
         publish(Events.MESSAGE_ADDED, {"role": "user"})
 
     def add_assistant_with_tool_calls(
@@ -1057,14 +1058,16 @@ class ChatSessionManager:
         """Add assistant message with tool calls. Marks start of tool cycle."""
         self._in_tool_cycle = True
         persona = self.current_settings.get("persona")
-        self.current_chat.add_assistant_with_tool_calls(
-            content, tool_calls, thinking, thinking_raw, metadata, persona=persona
-        )
-        self._save_current_chat()
+        with self._lock:
+            self.current_chat.add_assistant_with_tool_calls(
+                content, tool_calls, thinking, thinking_raw, metadata, persona=persona
+            )
+            self._save_current_chat()
 
     def add_tool_result(self, tool_call_id: str, name: str, content: str, inputs: Optional[Dict] = None):
-        self.current_chat.add_tool_result(tool_call_id, name, content, inputs)
-        self._save_current_chat()
+        with self._lock:
+            self.current_chat.add_tool_result(tool_call_id, name, content, inputs)
+            self._save_current_chat()
 
     def add_assistant_final(
         self,
@@ -1074,19 +1077,21 @@ class ChatSessionManager:
     ):
         """Add final assistant message. Ends tool cycle and clears thinking_raw."""
         persona = self.current_settings.get("persona")
-        self.current_chat.add_assistant_final(content, thinking, metadata, persona=persona)
-        
-        # Tool cycle complete - clear thinking_raw from previous messages
-        if self._in_tool_cycle:
-            self.current_chat.clear_thinking_raw()
-            self._in_tool_cycle = False
-            
-        self._save_current_chat()
+        with self._lock:
+            self.current_chat.add_assistant_final(content, thinking, metadata, persona=persona)
+
+            # Tool cycle complete - clear thinking_raw from previous messages
+            if self._in_tool_cycle:
+                self.current_chat.clear_thinking_raw()
+                self._in_tool_cycle = False
+
+            self._save_current_chat()
         publish(Events.MESSAGE_ADDED, {"role": "assistant"})
 
     def add_message_pair(self, user_content: str, assistant_content: str):
-        self.current_chat.add_message_pair(user_content, assistant_content)
-        self._save_current_chat()
+        with self._lock:
+            self.current_chat.add_message_pair(user_content, assistant_content)
+            self._save_current_chat()
         publish(Events.MESSAGE_ADDED, {"role": "pair"})
 
     def get_messages(self) -> List[Dict[str, str]]:
@@ -1149,9 +1154,12 @@ class ChatSessionManager:
                 conn.commit()
                 logger.debug(f"Appended message pair to chat '{chat_name}'")
 
-                # If this is the active chat, sync in-memory so /api/history sees it
+                # If this is the active chat, append to in-memory list instead of
+                # replacing it — replacing would wipe any unsaved user/assistant messages
+                # from the streaming pipeline that are in the in-memory list but not yet in DB
                 if chat_name == self.active_chat_name:
-                    self.current_chat.messages = messages
+                    self.current_chat.messages.append({"role": "user", "content": user_content, "timestamp": timestamp})
+                    self.current_chat.messages.append({"role": "assistant", "content": assistant_content, "timestamp": timestamp})
 
                 publish(Events.MESSAGE_ADDED, {"role": "pair", "chat_name": chat_name})
         except Exception as e:

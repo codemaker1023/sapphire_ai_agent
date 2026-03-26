@@ -349,12 +349,13 @@ class SettingsManager:
         """Set multiple settings at once"""
         for key, value in settings_dict.items():
             self.set(key, value, persist=False)  # Don't save each individually
-        
+
         if persist:
-            self._user.update(settings_dict)
-            for key in settings_dict:
-                self._runtime.pop(key, None)  # Now persisted
-            self.save()
+            with self._lock:
+                self._user.update(settings_dict)
+                for key in settings_dict:
+                    self._runtime.pop(key, None)  # Now persisted
+                self.save()
 
             # Track which settings require restart
             if hasattr(self, '_pending_restart_keys'):

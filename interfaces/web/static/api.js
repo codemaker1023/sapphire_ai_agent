@@ -171,9 +171,10 @@ export const streamChatContinue = async (text, prefill, onChunk, onComplete, onE
     onChunk = _wrapChunkWithAvatarScan(onChunk);
     let reader = null;
     try {
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const res = await fetch('/api/chat/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
             body: JSON.stringify({ text, prefill, skip_user_message: true }),
             signal
         });
@@ -264,9 +265,10 @@ export const streamChat = async (text, onChunk, onComplete, onError, signal = nu
         if (images && images.length > 0) body.images = images;
         if (files && files.length > 0) body.files = files;
         
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const res = await fetch('/api/chat/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
             body: JSON.stringify(body),
             signal
         });

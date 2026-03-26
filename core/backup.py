@@ -1,4 +1,5 @@
 import tarfile
+import sqlite3
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,8 @@ class Backup:
         filepath = self.backup_dir / filename
 
         try:
+            # Checkpoint SQLite WAL files before backup to ensure consistent snapshots
+            self._checkpoint_databases()
             with tarfile.open(filepath, "w:gz") as tar:
                 tar.add(self.user_dir, arcname="user")
 
@@ -61,6 +64,16 @@ class Backup:
         except Exception as e:
             logger.error(f"Backup failed: {e}")
             return None
+
+    def _checkpoint_databases(self):
+        """Flush WAL journals on all SQLite databases so tar captures consistent state."""
+        for db_path in self.user_dir.rglob("*.db"):
+            try:
+                conn = sqlite3.connect(str(db_path))
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.close()
+            except Exception as e:
+                logger.debug(f"WAL checkpoint skipped for {db_path.name}: {e}")
 
     def list_backups(self):
         """List all backups grouped by type."""
