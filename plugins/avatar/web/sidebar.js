@@ -448,20 +448,32 @@ export async function init(container) {
         });
     }
 
-    // Player mode toggle button
+    // Player mode toggle
     const btnPlayer = container.querySelector('#avatar-btn-player');
-    if (btnPlayer) {
-        btnPlayer.addEventListener('click', () => {
-            const on = playerCtrl.toggle();
-            btnPlayer.classList.toggle('player-active', on);
-            displayEl.classList.toggle('player-mode', on);
-            // Disable orbit when entering player mode
-            if (on && orbitSystem.isEnabled()) {
-                orbitSystem.toggle();
-                btnOrbit?.classList.remove('orbit-active');
-            }
-        });
+    function setPlayerMode(on) {
+        if (on === playerCtrl.isEnabled()) return;
+        playerCtrl.toggle();
+        btnPlayer?.classList.toggle('player-active', on);
+        displayEl.classList.toggle('player-mode', on);
+        if (on && orbitSystem.isEnabled()) {
+            orbitSystem.toggle();
+            btnOrbit?.classList.remove('orbit-active');
+        }
     }
+    if (btnPlayer) {
+        btnPlayer.addEventListener('click', () => setPlayerMode(!playerCtrl.isEnabled()));
+    }
+
+    // Auto-activate player mode on WASD/Space in fullwindow
+    const PLAYER_TRIGGER_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space']);
+    const _onPlayerAutoActivate = (e) => {
+        if (displayMode === 'sidebar') return;
+        if (playerCtrl.isEnabled()) return;
+        if (!PLAYER_TRIGGER_KEYS.has(e.code)) return;
+        e.preventDefault();
+        setPlayerMode(true);
+    };
+    document.addEventListener('keydown', _onPlayerAutoActivate);
 
     // Double-click to reset camera (only in orbit mode)
     canvas.addEventListener('dblclick', () => {
@@ -759,6 +771,7 @@ export async function init(container) {
         clearInterval(_micPoll);
         unsubs.forEach(fn => fn());
         _chatUnsubs.forEach(fn => fn());
+        document.removeEventListener('keydown', _onPlayerAutoActivate);
         playerCtrl.cleanup();
         orbitSystem.cleanup();
         controls.dispose();

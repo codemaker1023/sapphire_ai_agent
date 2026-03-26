@@ -185,8 +185,44 @@ export function createEnvironment(scene, THREE, renderer) {
 
     // Character fill light — always keeps Sapphire visible, brightens at night
     const fillLight = new THREE.PointLight(0xddeeff, 0.3, 15);
-    fillLight.position.set(0, 3.5, 2);  // above and slightly in front of center
+    fillLight.position.set(0, 3.5, 2);
     group.add(fillLight);
+
+    // ═══ WISPS — glowing orbs that orbit Sapphire ═══
+    const WISP_COUNT = 4;
+    const wisps = [];
+    const wispGroup = new THREE.Group();
+    group.add(wispGroup);
+
+    for (let i = 0; i < WISP_COUNT; i++) {
+        const orb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.04, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0x4a9eff, transparent: true, opacity: 0.7 })
+        );
+        // Soft glow halo around each wisp
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(0.12, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0x4a9eff, transparent: true, opacity: 0.12 })
+        );
+        orb.add(halo);
+
+        // Each wisp carries a tiny light to illuminate Sapphire
+        const light = new THREE.PointLight(0x4a9eff, 0.15, 4);
+        orb.add(light);
+
+        wispGroup.add(orb);
+        wisps.push({
+            mesh: orb,
+            light,
+            // Each wisp has unique orbital params
+            radius:   0.8 + i * 0.4,                    // distance from center
+            height:   1.2 + i * 0.5,                    // base height
+            speed:    0.15 + i * 0.07,                   // orbital speed
+            phase:    (i / WISP_COUNT) * Math.PI * 2,   // evenly spaced start
+            drift:    0.2 + Math.random() * 0.15,        // vertical bob amplitude
+            driftSpd: 0.3 + Math.random() * 0.2,         // vertical bob speed
+        });
+    }
 
     // ═══ DUST MOTES ═══
     let dustGeo, dustMat, dustMotes, _dustCfg = null;
@@ -369,6 +405,19 @@ export function createEnvironment(scene, THREE, renderer) {
                 dPos[i*3 + 2] += Math.cos(_time * 0.25 + i * 0.5) * delta * 0.04;
             }
             dustGeo.attributes.position.needsUpdate = true;
+        }
+
+        // Wisps orbit
+        for (const w of wisps) {
+            const angle = w.phase + _time * w.speed;
+            w.mesh.position.set(
+                Math.sin(angle) * w.radius,
+                w.height + Math.sin(_time * w.driftSpd + w.phase) * w.drift,
+                Math.cos(angle) * w.radius
+            );
+            // Gentle pulse on opacity
+            w.mesh.material.opacity = 0.5 + Math.sin(_time * 1.5 + w.phase) * 0.2;
+            w.light.intensity = 0.1 + Math.sin(_time * 1.5 + w.phase) * 0.08;
         }
 
         // Glow ring pulse
