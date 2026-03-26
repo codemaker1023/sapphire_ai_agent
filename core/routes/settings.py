@@ -598,6 +598,7 @@ async def update_llm_provider(provider_key: str, request: Request, _=Depends(req
             prov.pop('api_key', None)
         settings.set('LLM_CUSTOM_PROVIDERS', custom, persist=True)
 
+    publish(Events.SETTINGS_CHANGED, {"key": "LLM_PROVIDERS", "value": provider_key})
     return {"status": "success", "provider": provider_key}
 
 
@@ -706,6 +707,7 @@ async def add_custom_provider(request: Request, _=Depends(require_login)):
         order.append(name)
         settings.set('LLM_FALLBACK_ORDER', order, persist=True)
 
+    publish(Events.SETTINGS_CHANGED, {"key": "LLM_CUSTOM_PROVIDERS", "value": name})
     return {"status": "success", "name": name, "config": provider_config}
 
 
@@ -738,6 +740,7 @@ async def delete_custom_provider(provider_key: str, request: Request, _=Depends(
     except Exception:
         pass
 
+    publish(Events.SETTINGS_CHANGED, {"key": "LLM_CUSTOM_PROVIDERS", "value": provider_key})
     return {"status": "success", "name": provider_key}
 
 

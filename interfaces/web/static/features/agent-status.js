@@ -236,8 +236,6 @@ async function drainAgentReport() {
         }
         if (!pendingAgentReport) return; // re-check after awaits
         const report = pendingAgentReport;
-        pendingAgentReport = null;
-        pendingAgentChat = null;
         console.log('[Agents] Sending auto-return report to chat');
 
         // Preserve user's in-progress typing
@@ -248,6 +246,10 @@ async function drainAgentReport() {
         const { triggerSendWithText } = await import('../handlers/send-handlers.js');
         await triggerSendWithText(report);
 
+        // Only clear after successful send
+        pendingAgentReport = null;
+        pendingAgentChat = null;
+
         // Restore what the user was typing
         if (savedText && input) {
             input.value = savedText;
@@ -255,8 +257,7 @@ async function drainAgentReport() {
         }
     } catch (err) {
         console.error('[Agents] Auto-return failed:', err);
-        pendingAgentReport = null;
-        pendingAgentChat = null;
+        // Don't clear pendingAgentReport — will retry on next trigger
     } finally {
         draining = false;
     }

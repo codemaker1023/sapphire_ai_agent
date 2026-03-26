@@ -103,6 +103,7 @@ class AgentManager:
         worker._agent_type = agent_type
 
         with self._lock:
+            worker.status = 'running'
             self._agents[agent_id] = worker
 
         worker.start()

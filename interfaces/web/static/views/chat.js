@@ -87,7 +87,12 @@ export default {
         // Refresh voice dropdown when TTS provider changes
         eventBus.on('settings_changed', (data) => {
             if (data?.key === 'TTS_PROVIDER') refreshVoiceDropdown();
+            if (data?.key === 'LLM_PROVIDERS' || data?.key === 'LLM_CUSTOM_PROVIDERS') loadSidebar();
         });
+
+        // Refresh prompt dropdown when prompts are created/deleted
+        eventBus.on(eventBus.Events.PROMPT_CHANGED, () => loadSidebar());
+        eventBus.on(eventBus.Events.PROMPT_DELETED, () => loadSidebar());
 
         // Accordion headers in sidebar (event delegation — handles core + plugin accordions)
         const sbFull = container.querySelector('.sb-full-content');
