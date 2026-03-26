@@ -225,6 +225,9 @@ async def _connect_single(account_name: str, token: str = None):
         }
 
         logger.info(f"[DISCORD] Message from {payload['username']} in #{payload['channel_name']} (mentioned={mentioned})")
+        # Clear the send flag before processing — reply handler checks this after LLM runs
+        from plugins.discord.tools.discord_tools import _message_sent
+        _message_sent.clear()
         _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
 
     _clients[account_name] = client
@@ -273,7 +276,7 @@ def _reply_handler(task, event_data: dict, response_text: str):
     from plugins.discord.tools.discord_tools import _message_sent
 
     # Smart model already used the tool — don't double-post
-    if _message_sent.get(False):
+    if _message_sent.is_set():
         logger.info("[DISCORD] Reply handler skipped — tool already sent message")
         return
 
@@ -296,14 +299,15 @@ def _reply_handler(task, event_data: dict, response_text: str):
     if len(clean) > 2000:
         clean = clean[:1997] + "..."
 
-    if not _loop or not _loop.is_running():
+    loop = _loop  # Snapshot — stop() may set _loop = None concurrently
+    if not loop or not loop.is_running():
         logger.warning("[DISCORD] Reply handler: daemon loop not running")
         return
 
     try:
         future = asyncio.run_coroutine_threadsafe(
             send_message(account, int(channel_id), clean),
-            _loop
+            loop
         )
         future.result(timeout=15)
         logger.info(f"[DISCORD] Reply sent to #{event_data.get('channel_name', channel_id)} via {account}")

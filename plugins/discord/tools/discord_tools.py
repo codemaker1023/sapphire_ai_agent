@@ -16,8 +16,11 @@ EMOJI = "🎮"
 
 # Set by executor when processing a daemon event — auto-reply target
 _reply_channel_id = ContextVar('discord_reply_channel_id', default=None)
-# Set to True when discord_send_message runs — prevents double-post from auto_reply
-_message_sent = ContextVar('discord_message_sent', default=False)
+# Set to True when discord_send_message runs — prevents double-post from auto_reply.
+# Uses threading.Event (not ContextVar) because the reply handler runs in a different
+# thread context than the tool execution, so ContextVars don't propagate.
+import threading
+_message_sent = threading.Event()
 
 TOOLS = [
     {
@@ -237,7 +240,7 @@ def _send_message(client, loop, channel_ref=None, text=""):
 
     future = asyncio.run_coroutine_threadsafe(_send(), loop)
     channel_name = future.result(timeout=10)
-    _message_sent.set(True)
+    _message_sent.set()
 
     return f"Message sent to #{channel_name}.", True
 

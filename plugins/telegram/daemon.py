@@ -306,14 +306,15 @@ def _reply_handler(task, event_data: dict, response_text: str):
     elif reply_format == "html":
         parse_mode = "html"
 
-    if not _loop or not _loop.is_running():
+    loop = _loop  # Snapshot — stop() may set _loop = None concurrently
+    if not loop or not loop.is_running():
         logger.warning("[TELEGRAM] Reply handler: daemon loop not running")
         return
 
     try:
         future = asyncio.run_coroutine_threadsafe(
             send_message(account, chat_id, clean, parse_mode=parse_mode),
-            _loop
+            loop
         )
         future.result(timeout=15)
         logger.info(f"[TELEGRAM] Reply sent to chat {chat_id} via {account}")
