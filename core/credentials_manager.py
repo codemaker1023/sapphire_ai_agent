@@ -18,6 +18,7 @@ import base64
 import getpass
 import logging
 import socket
+import threading
 from pathlib import Path
 from typing import Optional
 from core.setup import CONFIG_DIR, SOCKS_CONFIG_FILE, CLAUDE_API_KEY_FILE
@@ -92,6 +93,7 @@ class CredentialsManager:
     def __init__(self):
         self._credentials = None
         self._scramble_key = None
+        self._lock = threading.RLock()
         self._load()
     
     def _load(self):
@@ -364,17 +366,18 @@ class CredentialsManager:
 
     def set_service_api_key(self, service: str, api_key: str) -> bool:
         """Set API key for a service."""
-        try:
-            services = self._credentials.setdefault('services', {})
-            services.setdefault(service, {})['api_key'] = api_key
-            if not self._save():
-                logger.error(f"Failed to persist API key for service '{service}'")
+        with self._lock:
+            try:
+                services = self._credentials.setdefault('services', {})
+                services.setdefault(service, {})['api_key'] = api_key
+                if not self._save():
+                    logger.error(f"Failed to persist API key for service '{service}'")
+                    return False
+                logger.info(f"Set API key for service '{service}'")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to set API key for service '{service}': {e}")
                 return False
-            logger.info(f"Set API key for service '{service}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set API key for service '{service}': {e}")
-            return False
 
     def _parse_legacy_line(self, line: str) -> str:
         """Parse legacy config line, stripping key= prefix if present."""
@@ -385,25 +388,27 @@ class CredentialsManager:
     
     def _save(self) -> bool:
         """Save credentials to file with restrictive permissions. Returns True on success.
-        Uses atomic write (temp + rename) to prevent corruption on crash."""
-        try:
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        Uses atomic write (temp + rename) to prevent corruption on crash.
+        Thread-safe: acquires _lock to serialize all mutation+save cycles."""
+        with self._lock:
+            try:
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-            tmp_path = CREDENTIALS_FILE.with_suffix('.tmp')
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(self._credentials, f, indent=2)
+                tmp_path = CREDENTIALS_FILE.with_suffix('.tmp')
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(self._credentials, f, indent=2)
 
-            # Set restrictive permissions on Unix (before rename so file is protected)
-            if sys.platform != 'win32':
-                os.chmod(tmp_path, 0o600)
+                # Set restrictive permissions on Unix (before rename so file is protected)
+                if sys.platform != 'win32':
+                    os.chmod(tmp_path, 0o600)
 
-            tmp_path.replace(CREDENTIALS_FILE)
+                tmp_path.replace(CREDENTIALS_FILE)
 
-            logger.info(f"Saved credentials to {CREDENTIALS_FILE}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save credentials to {CREDENTIALS_FILE}: {e}")
-            return False
+                logger.info(f"Saved credentials to {CREDENTIALS_FILE}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to save credentials to {CREDENTIALS_FILE}: {e}")
+                return False
     
     # =========================================================================
     # Scramble (reversible encryption for sensitive fields)
@@ -519,23 +524,24 @@ class CredentialsManager:
     
     def set_llm_api_key(self, provider: str, api_key: str) -> bool:
         """Set API key for an LLM provider."""
-        try:
-            if 'llm' not in self._credentials:
-                self._credentials['llm'] = {}
-            if provider not in self._credentials['llm']:
-                self._credentials['llm'][provider] = {}
-            
-            self._credentials['llm'][provider]['api_key'] = api_key
-            
-            if not self._save():
-                logger.error(f"Failed to persist API key for '{provider}' to disk")
+        with self._lock:
+            try:
+                if 'llm' not in self._credentials:
+                    self._credentials['llm'] = {}
+                if provider not in self._credentials['llm']:
+                    self._credentials['llm'][provider] = {}
+
+                self._credentials['llm'][provider]['api_key'] = api_key
+
+                if not self._save():
+                    logger.error(f"Failed to persist API key for '{provider}' to disk")
+                    return False
+
+                logger.info(f"Set API key for provider '{provider}'")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to set API key for '{provider}': {e}")
                 return False
-            
-            logger.info(f"Set API key for provider '{provider}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set API key for '{provider}': {e}")
-            return False
     
     def clear_llm_api_key(self, provider: str) -> bool:
         """Clear API key for an LLM provider."""
@@ -561,21 +567,22 @@ class CredentialsManager:
     
     def set_socks_credentials(self, username: str, password: str) -> bool:
         """Set SOCKS credentials."""
-        try:
-            if 'socks' not in self._credentials:
-                self._credentials['socks'] = {}
-            
-            self._credentials['socks']['username'] = username
-            self._credentials['socks']['password'] = password
-            
-            if not self._save():
-                logger.error("Failed to persist SOCKS credentials to disk")
-                return False
-            
-            logger.info("Set SOCKS credentials")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set SOCKS credentials: {e}")
+        with self._lock:
+            try:
+                if 'socks' not in self._credentials:
+                    self._credentials['socks'] = {}
+
+                self._credentials['socks']['username'] = username
+                self._credentials['socks']['password'] = password
+
+                if not self._save():
+                    logger.error("Failed to persist SOCKS credentials to disk")
+                    return False
+
+                logger.info("Set SOCKS credentials")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to set SOCKS credentials: {e}")
             return False
     
     def clear_socks_credentials(self) -> bool:
@@ -615,21 +622,22 @@ class CredentialsManager:
     
     def set_ha_token(self, token: str) -> bool:
         """Set Home Assistant token."""
-        try:
-            if 'homeassistant' not in self._credentials:
-                self._credentials['homeassistant'] = {}
-            
-            self._credentials['homeassistant']['token'] = token
-            
-            if not self._save():
-                logger.error("Failed to persist HA token to disk")
+        with self._lock:
+            try:
+                if 'homeassistant' not in self._credentials:
+                    self._credentials['homeassistant'] = {}
+
+                self._credentials['homeassistant']['token'] = token
+
+                if not self._save():
+                    logger.error("Failed to persist HA token to disk")
+                    return False
+
+                logger.info("Set Home Assistant token")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to set HA token: {e}")
                 return False
-            
-            logger.info("Set Home Assistant token")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set HA token: {e}")
-            return False
     
     def clear_ha_token(self) -> bool:
         """Clear Home Assistant token."""
@@ -699,15 +707,16 @@ class CredentialsManager:
 
     def delete_email_account(self, scope: str) -> bool:
         """Remove an email account by scope."""
-        accounts = self._credentials.get('email_accounts', {})
-        if scope not in accounts:
-            return False
-        del accounts[scope]
-        if not self._save():
-            logger.error(f"Failed to persist deletion of email account '{scope}'")
-            return False
-        logger.info(f"Deleted email account '{scope}'")
-        return True
+        with self._lock:
+            accounts = self._credentials.get('email_accounts', {})
+            if scope not in accounts:
+                return False
+            del accounts[scope]
+            if not self._save():
+                logger.error(f"Failed to persist deletion of email account '{scope}'")
+                return False
+            logger.info(f"Deleted email account '{scope}'")
+            return True
 
     def list_email_accounts(self) -> list:
         """List all email accounts (no passwords/tokens)."""
@@ -768,15 +777,16 @@ class CredentialsManager:
     def update_email_oauth_tokens(self, scope: str, access_token: str, expires_at: float,
                                    refresh_token: str = '') -> bool:
         """Update OAuth tokens for an existing email account (called after token refresh)."""
-        accounts = self._credentials.get('email_accounts', {})
-        if scope not in accounts:
-            return False
-        acct = accounts[scope]
-        acct['oauth_access_token'] = access_token
-        acct['oauth_expires_at'] = expires_at
-        if refresh_token:
-            acct['oauth_refresh_token'] = self._scramble(refresh_token)
-        return self._save()
+        with self._lock:
+            accounts = self._credentials.get('email_accounts', {})
+            if scope not in accounts:
+                return False
+            acct = accounts[scope]
+            acct['oauth_access_token'] = access_token
+            acct['oauth_expires_at'] = expires_at
+            if refresh_token:
+                acct['oauth_refresh_token'] = self._scramble(refresh_token)
+            return self._save()
 
     def has_email_account(self, scope: str = 'default') -> bool:
         """Check if email account exists and has credentials."""
@@ -838,15 +848,16 @@ class CredentialsManager:
 
     def delete_bitcoin_wallet(self, scope: str) -> bool:
         """Remove a bitcoin wallet by scope."""
-        wallets = self._credentials.get('bitcoin_wallets', {})
-        if scope not in wallets:
-            return False
-        del wallets[scope]
-        if not self._save():
-            logger.error(f"Failed to persist deletion of bitcoin wallet '{scope}'")
-            return False
-        logger.info(f"Deleted bitcoin wallet '{scope}'")
-        return True
+        with self._lock:
+            wallets = self._credentials.get('bitcoin_wallets', {})
+            if scope not in wallets:
+                return False
+            del wallets[scope]
+            if not self._save():
+                logger.error(f"Failed to persist deletion of bitcoin wallet '{scope}'")
+                return False
+            logger.info(f"Deleted bitcoin wallet '{scope}'")
+            return True
 
     def list_bitcoin_wallets(self) -> list:
         """List all bitcoin wallets (no WIFs). Derives address from stored key."""
@@ -918,24 +929,26 @@ class CredentialsManager:
 
     def update_gcal_tokens(self, scope: str, refresh_token: str, access_token: str = '', expires_at: float = 0) -> bool:
         """Update OAuth tokens for an existing gcal account (called after OAuth callback)."""
-        accounts = self._credentials.get('gcal_accounts', {})
-        if scope not in accounts:
-            return False
-        accounts[scope]['refresh_token'] = self._scramble(refresh_token) if refresh_token else accounts[scope].get('refresh_token', '')
-        accounts[scope]['access_token'] = access_token  # Short-lived, no need to encrypt
-        accounts[scope]['expires_at'] = expires_at
-        return self._save()
+        with self._lock:
+            accounts = self._credentials.get('gcal_accounts', {})
+            if scope not in accounts:
+                return False
+            accounts[scope]['refresh_token'] = self._scramble(refresh_token) if refresh_token else accounts[scope].get('refresh_token', '')
+            accounts[scope]['access_token'] = access_token  # Short-lived, no need to encrypt
+            accounts[scope]['expires_at'] = expires_at
+            return self._save()
 
     def delete_gcal_account(self, scope: str) -> bool:
         """Remove a Google Calendar account by scope."""
-        accounts = self._credentials.get('gcal_accounts', {})
-        if scope not in accounts:
-            return False
-        del accounts[scope]
-        if not self._save():
-            return False
-        logger.info(f"Deleted gcal account '{scope}'")
-        return True
+        with self._lock:
+            accounts = self._credentials.get('gcal_accounts', {})
+            if scope not in accounts:
+                return False
+            del accounts[scope]
+            if not self._save():
+                return False
+            logger.info(f"Deleted gcal account '{scope}'")
+            return True
 
     def list_gcal_accounts(self) -> list:
         """List all gcal accounts (no secrets)."""

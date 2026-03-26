@@ -180,8 +180,10 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
         except Exception:
             pass
     user_data["enabled"] = enabled
-    with open(USER_PLUGINS_JSON, 'w') as f:
+    tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+    with open(tmp_path, 'w') as f:
         json.dump(user_data, f, indent=2)
+    tmp_path.replace(USER_PLUGINS_JSON)
 
     # Live load/unload — no restart needed for backend plugins
     reload_required = True
@@ -197,8 +199,10 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
                     if plugin_name in enabled:
                         enabled.remove(plugin_name)
                     user_data["enabled"] = enabled
-                    with open(USER_PLUGINS_JSON, 'w') as f:
+                    tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+                    with open(tmp_path, 'w') as f:
                         json.dump(user_data, f, indent=2)
+                    tmp_path.replace(USER_PLUGINS_JSON)
                     verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
                     if "unsigned" in verify_msg:
                         detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"

@@ -166,6 +166,7 @@ async def update_settings_batch(request: Request, _=Depends(require_login)):
     # (e.g. API key must be in config before provider init reads it)
     deferred_actions = []
     deferred_keys = set()
+    persisted_keys = {}  # Collect keys for single disk write
     # Service API keys that should route to credentials manager
     _SERVICE_CRED_MAP = {
         'STT_FIREWORKS_API_KEY': 'stt_fireworks',
@@ -181,7 +182,9 @@ async def update_settings_batch(request: Request, _=Depends(require_login)):
                 results.append({"key": key, "status": "success", "tier": "hot"})
                 continue
             tier = settings.validate_tier(key)
-            settings.set(key, value, persist=persist)
+            settings.set(key, value, persist=False)
+            if persist:
+                persisted_keys[key] = value
             results.append({"key": key, "status": "success", "tier": tier})
             if key == 'WAKE_WORD_ENABLED':
                 get_system().toggle_wakeword(value)
@@ -216,6 +219,12 @@ async def update_settings_batch(request: Request, _=Depends(require_login)):
                 publish(Events.SETTINGS_CHANGED, {"key": key, "value": value, "tier": tier})
         except Exception as e:
             results.append({"key": key, "status": "error", "error": str(e)})
+    # Persist all settings in one disk write (instead of N individual saves)
+    if persist and persisted_keys:
+        settings._user.update(persisted_keys)
+        for key in persisted_keys:
+            settings._runtime.pop(key, None)
+        settings.save()
     # Execute deferred provider switches (config values are now set)
     system = get_system()
     for action, value, key, tier in deferred_actions:

@@ -199,6 +199,7 @@ class EmbeddingRegistry(BaseProviderRegistry):
     def __init__(self):
         super().__init__('embedding', 'EMBEDDING_PROVIDER')
         self.register_core('local', LocalEmbedder, 'Local (Nomic)', is_local=True)
+        self.register_core('api', RemoteEmbedder, 'Remote (Nomic API)', is_local=False)
         self.register_core('none', NullEmbedder, 'None (disabled)', is_local=True)
 
     def create(self, key, **kwargs):

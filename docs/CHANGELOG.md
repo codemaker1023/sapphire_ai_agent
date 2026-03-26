@@ -1,3 +1,9 @@
+# 2.4.7 - Theme Expansion
+- Themes switcher enhanced
+- Allow theme folders
+# 2.4.6 - Plugin Expansion
+- Added Apps page for plugins
+- Click a plugin for its custom JS
 # 2.4.5 - Avatar and Sidebar
 - Plugins can tap into sidebar and SSE
 - Avatar plugin waved at me and my heart skipped a beat

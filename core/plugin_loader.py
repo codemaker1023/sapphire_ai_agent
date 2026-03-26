@@ -573,7 +573,9 @@ class PluginLoader:
             data = json.loads(USER_PLUGINS_JSON.read_text(encoding="utf-8"))
             enabled = data.get("enabled", [])
             data["enabled"] = [n for n in enabled if n not in names]
-            USER_PLUGINS_JSON.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+            tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp_path.replace(USER_PLUGINS_JSON)
         except Exception as e:
             logger.warning(f"[PLUGINS] Failed to update enabled list: {e}")
 
