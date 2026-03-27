@@ -271,17 +271,17 @@ def execute(function_name, arguments, config):
         if function_name == 'tool_save':
             name = _sanitize_name(arguments.get('name', ''))
             if not name:
-                return "Invalid or reserved name. Use alphanumeric/underscores, cannot match core tools or system plugins.", False
+                return "FAILED: Invalid or reserved name. Use alphanumeric/underscores, cannot match core tools or system plugins.", False
 
             code = arguments.get('code', '')
             if not code.strip():
-                return "No code provided.", False
+                return "FAILED: No code provided.", False
 
             strictness = _get_validation_level()
 
             ok, err = _validate_ast(code, strictness)
             if not ok:
-                return f"Validation failed ({strictness} mode): {err}", False
+                return f"FAILED: Validation failed ({strictness} mode): {err}", False
 
             # Create plugin directory structure
             plugin_dir = _USER_PLUGINS / name
@@ -294,7 +294,7 @@ def execute(function_name, arguments, config):
             ok, result = _smoke_test(filepath)
             if not ok:
                 shutil.rmtree(plugin_dir, ignore_errors=True)
-                return f"Smoke test failed: {result}\nPlugin directory removed — fix and retry.", False
+                return f"FAILED: Smoke test failed: {result}\nPlugin directory removed — fix and retry.", False
 
             # Generate and write manifest
             manifest = _generate_manifest(name, result, code)
@@ -311,7 +311,7 @@ def execute(function_name, arguments, config):
 
             clean = _sanitize_name(name)
             if not clean:
-                return f"Invalid tool name: '{name}'. Use alphanumeric and underscores only.", False
+                return f"FAILED: Invalid tool name: '{name}'. Use alphanumeric and underscores only.", False
             # Check user plugins first
             plugin_tool = _USER_PLUGINS / clean / "tools" / f"{clean}.py"
             if plugin_tool.exists():
@@ -324,7 +324,7 @@ def execute(function_name, arguments, config):
                 code = legacy.read_text(encoding='utf-8')
                 return f"=== {clean} (legacy user/functions/) ===\n{code}", True
 
-            return f"Tool '{clean}' not found.\n{_list_user_plugins()}", False
+            return f"FAILED: Tool '{clean}' not found.\n{_list_user_plugins()}", False
 
         elif function_name == 'tool_load':
             try:
@@ -380,10 +380,10 @@ def execute(function_name, arguments, config):
                 else:
                     return "Rescan complete — no changes detected.", True
             except Exception as e:
-                return f"Load failed: {e}", False
+                return f"FAILED: Load failed: {e}", False
 
-        return f"Unknown function: {function_name}", False
+        return f"FAILED: Unknown function: {function_name}", False
 
     except Exception as e:
         logger.error(f"Toolmaker error in {function_name}: {e}", exc_info=True)
-        return f"Error: {str(e)}", False
+        return f"FAILED: Error: {str(e)}", False

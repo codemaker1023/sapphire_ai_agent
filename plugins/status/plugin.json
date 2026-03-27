@@ -1,0 +1,20 @@
+{
+  "name": "status",
+  "display_name": "System Status",
+  "description": "System status dashboard and self-awareness tool",
+  "version": "1.0.0",
+  "emoji": "📡",
+  "author": "Sapphire",
+  "default_enabled": true,
+  "capabilities": {
+    "app": {
+      "label": "System Status",
+      "icon": "📡",
+      "description": "Live system stats, diagnostics, and service health"
+    },
+    "tools": ["tools/status_tool.py"],
+    "routes": [
+      {"method": "GET", "path": "full", "handler": "routes/status.py:get_full_status"}
+    ]
+  }
+}
