@@ -27,6 +27,11 @@ export default {
                     </div>
                     <div class="dash-update-actions" id="dash-update-actions"></div>
                 </div>
+                <div class="dash-card">
+                    <h4>Help</h4>
+                    <p class="text-muted" style="font-size:var(--font-sm);margin:0 0 8px">Guides, shortcuts, and troubleshooting</p>
+                    <button class="btn-primary btn-sm" id="dash-help">Open Help</button>
+                </div>
                 <div class="dash-card dash-card-wide">
                     <div class="dash-card-header">
                         <h4>Token Metrics <span class="text-muted" style="font-size:var(--font-xs);font-weight:normal">(30 days)</span></h4>
@@ -45,6 +50,11 @@ export default {
     },
 
     attachListeners(ctx, el) {
+        // Help button
+        el.querySelector('#dash-help')?.addEventListener('click', () => {
+            import('../../core/router.js').then(r => r.switchView('help'));
+        });
+
         // Restart
         el.querySelector('#dash-restart')?.addEventListener('click', async () => {
             if (!confirm('Restart Sapphire?')) return;
