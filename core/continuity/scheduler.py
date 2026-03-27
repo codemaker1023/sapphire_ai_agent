@@ -207,8 +207,32 @@ class ContinuityScheduler:
     
     # =========================================================================
     # TASK CRUD
+    def _increment_run_count(self, task_id: str):
+        """Increment run counter, auto-disable/delete if limits reached. Call under self._lock."""
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+        task_name = task.get("name", "Unknown")
+
+        # Check delete_after_run (fires before max_runs check — one-shot delete)
+        if task.get("delete_after_run"):
+            logger.info(f"[Continuity] '{task_name}' — delete_after_run, removing task")
+            del self._tasks[task_id]
+            self._task_pending.pop(task_id, None)
+            self._task_running.pop(task_id, None)
+            self._task_last_matched.pop(task_id, None)
+            return
+
+        max_runs = task.get("max_runs", 0)
+        if max_runs <= 0:
+            return
+        task["run_count"] = task.get("run_count", 0) + 1
+        if task["run_count"] >= max_runs:
+            task["enabled"] = False
+            logger.info(f"[Continuity] '{task_name}' completed {task['run_count']}/{max_runs} runs — auto-disabled")
+
     # =========================================================================
-    
+
     def list_tasks(self) -> List[Dict]:
         """Get all tasks, with live progress info merged in."""
         with self._lock:
@@ -287,6 +311,9 @@ class ContinuityScheduler:
             "source": data.get("source", ""),
             "handler": data.get("handler", ""),
             "plugin_dir": data.get("plugin_dir", ""),
+            "max_runs": data.get("max_runs", 0),
+            "run_count": data.get("run_count", 0),
+            "delete_after_run": data.get("delete_after_run", False),
             "last_run": None,
             "last_response": None,
             "created": _user_now().isoformat()
@@ -329,12 +356,19 @@ class ContinuityScheduler:
                 "memory_scope", "knowledge_scope", "people_scope", "goal_scope",
                 "heartbeat", "emoji",
                 "context_limit", "max_parallel_tools", "max_tool_rounds",
-                "active_hours_start", "active_hours_end"
+                "active_hours_start", "active_hours_end",
+                "max_runs", "delete_after_run"
             }
             for key in allowed:
                 if key in data:
                     task[key] = data[key]
             
+            # Reset run count when re-enabling a completed task
+            if data.get("enabled") and task.get("max_runs", 0) > 0:
+                if task.get("run_count", 0) >= task["max_runs"]:
+                    task["run_count"] = 0
+                    logger.info(f"[Continuity] Reset run count for re-enabled task '{task.get('name')}'")
+
             # Reset run state — clears pending queue and allows fresh cron match
             self._task_pending[task_id] = []
             self._task_last_matched.pop(task_id, None)
@@ -438,6 +472,7 @@ class ContinuityScheduler:
                 with self._lock:
                     if task_id in self._tasks:
                         self._tasks[task_id]["last_run"] = _user_now().isoformat()
+                        self._increment_run_count(task_id)
                         self._save_tasks()
                     self._task_progress.pop(task_id, None)
 
@@ -580,6 +615,7 @@ class ContinuityScheduler:
             with self._lock:
                 if task_id in self._tasks:
                     self._tasks[task_id]["last_run"] = _user_now().isoformat()
+                    self._increment_run_count(task_id)
                     self._save_tasks()
 
             status = "complete" if result.get("success") else "error"
@@ -717,6 +753,7 @@ class ContinuityScheduler:
                     with self._lock:
                         if task_id in self._tasks:
                             self._tasks[task_id]["last_run"] = _user_now().isoformat()
+                            self._increment_run_count(task_id)
                             self._save_tasks()
                         self._task_progress.pop(task_id, None)
 

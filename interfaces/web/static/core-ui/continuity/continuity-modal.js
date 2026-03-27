@@ -191,6 +191,11 @@ export default class ContinuityModal {
     const lastRun = task.last_run ? this.formatTime(task.last_run) : 'Never';
     const memoryInfo = task.memory_scope && task.memory_scope !== 'none' ? `💾 ${task.memory_scope}` : '';
     const chatInfo = task.chat_target ? `💬 ${this.escapeHtml(task.chat_target)}` : '';
+    const maxRuns = task.max_runs || 0;
+    const runCount = task.run_count || 0;
+    const runsInfo = maxRuns > 0
+        ? (runCount >= maxRuns ? `<span style="color:var(--color-success,#4caf50)">✓ Done (${runCount}/${maxRuns})</span>` : `Runs: ${runCount}/${maxRuns}`)
+        : '';
 
     // Iteration display: show live progress if running, otherwise static count
     let iterText = '';
@@ -212,6 +217,7 @@ export default class ContinuityModal {
           <div class="continuity-task-schedule">${this.escapeHtml(task.schedule)}</div>
           <div class="continuity-task-meta">
             ${task.chance < 100 ? `${task.chance}% chance • ` : ''}
+            ${runsInfo ? `${runsInfo} • ` : ''}
             ${iterText ? `${iterText} • ` : ''}
             ${chatInfo ? `${chatInfo} • ` : ''}
             ${memoryInfo ? `${memoryInfo} • ` : ''}

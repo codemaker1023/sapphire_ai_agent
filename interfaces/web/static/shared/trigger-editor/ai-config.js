@@ -198,6 +198,21 @@ export function renderAIConfig(t, data, opts = {}) {
                         <input type="number" id="ed-max-rounds" value="${t.max_tool_rounds || 0}" min="0" style="width:60px">
                     </div>
                 </div>
+                <div class="sched-field-row">
+                    <div class="sched-field">
+                        <label>Max runs <span class="help-tip" data-tip="Auto-disable after N runs. 1 = one-shot task. 0 = unlimited.">?</span></label>
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <input type="number" id="ed-max-runs" value="${t.max_runs || 0}" min="0" style="width:60px">
+                            ${(t.max_runs || 0) > 0 ? `<span class="text-muted">${t.run_count || 0}/${t.max_runs} done</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="sched-field">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                            <input type="checkbox" id="ed-delete-after-run" ${t.delete_after_run ? 'checked' : ''}>
+                            Delete after run <span class="help-tip" data-tip="Automatically delete this task after it runs once. For one-shot tasks that should leave no trace.">?</span>
+                        </label>
+                    </div>
+                </div>
             </div></div>
         </details>`;
 }
@@ -391,6 +406,8 @@ export function readAIConfig(modal) {
         context_limit: parseInt(modal.querySelector('#ed-context-limit')?.value) || 0,
         max_parallel_tools: parseInt(modal.querySelector('#ed-max-parallel')?.value) || 0,
         max_tool_rounds: parseInt(modal.querySelector('#ed-max-rounds')?.value) || 0,
+        max_runs: parseInt(modal.querySelector('#ed-max-runs')?.value) || 0,
+        delete_after_run: modal.querySelector('#ed-delete-after-run')?.checked || false,
     };
 }
 
