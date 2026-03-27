@@ -1015,6 +1015,12 @@ class ChatSessionManager:
 
     def _save_last_active(self, chat_name):
         """Persist active chat name for restart recovery."""
+        try:
+            from core.privacy import is_privacy_mode
+            if is_privacy_mode():
+                return  # Don't leak chat name to disk during privacy mode
+        except ImportError:
+            pass
         marker = self.history_dir / ".active_chat"
         try:
             marker.write_text(chat_name, encoding='utf-8')

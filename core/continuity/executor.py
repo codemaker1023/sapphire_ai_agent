@@ -129,6 +129,8 @@ class ContinuityExecutor:
                         # Stash channel_id for auto-reply targeting
                         if obj.get("channel_id"):
                             task["_discord_reply_channel_id"] = obj["channel_id"]
+                    elif "telegram" in source and not task.get("telegram_scope"):
+                        task["telegram_scope"] = obj["account"]
                     elif "email" in source and not task.get("email_scope"):
                         task["email_scope"] = obj["account"]
             except (json.JSONDecodeError, TypeError):
@@ -174,6 +176,8 @@ class ContinuityExecutor:
             "email_scope": task.get("email_scope", "default"),
             "bitcoin_scope": task.get("bitcoin_scope", "default"),
             "discord_scope": task.get("discord_scope", "default"),
+            "telegram_scope": task.get("telegram_scope", "default"),
+            "gcal_scope": task.get("gcal_scope", "default"),
         }
 
     def _run_background(self, task: Dict[str, Any], result: Dict[str, Any],
@@ -463,6 +467,8 @@ class ContinuityExecutor:
                 "email_scope": "email_scope",
                 "bitcoin_scope": "bitcoin_scope",
                 "discord_scope": "discord_scope",
+                "telegram_scope": "telegram_scope",
+                "gcal_scope": "gcal_scope",
             }
             for persona_key, task_key in field_map.items():
                 persona_val = ps.get(persona_key)

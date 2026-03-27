@@ -187,7 +187,8 @@ async def update_settings_batch(request: Request, _=Depends(require_login)):
                 persisted_keys[key] = value
             results.append({"key": key, "status": "success", "tier": tier})
             if key == 'WAKE_WORD_ENABLED':
-                get_system().toggle_wakeword(value)
+                deferred_actions.append(('toggle_wakeword', value, key, tier))
+                deferred_keys.add(key)
             if key == 'STT_PROVIDER':
                 deferred_actions.append(('switch_stt_provider', value, key, tier))
                 deferred_keys.add(key)
@@ -362,7 +363,7 @@ async def update_setting(key: str, request: Request, _=Depends(require_login)):
         clear_session_cache()
     if key == 'WAKE_WORD_ENABLED':
         system = get_system()
-        system.toggle_wakeword(value)
+        await asyncio.to_thread(system.toggle_wakeword, value)
     # Provider switches: fire-and-forget when ?async=true (setup wizard uses this)
     run_async = request.query_params.get('async') == 'true'
 

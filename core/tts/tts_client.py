@@ -456,6 +456,7 @@ class TTSClient:
     def stop(self):
         """Stop currently playing audio"""
         self.should_stop.set()
+        was_playing = False
         with self.lock:
             if self._is_playing:
                 try:
@@ -463,6 +464,9 @@ class TTSClient:
                 except Exception:
                     pass
                 self._is_playing = False
+                was_playing = True
+        if was_playing:
+            publish(Events.TTS_STOPPED)
 
     def wait(self, timeout=300):
         """Block until TTS playback finishes or timeout (seconds)."""

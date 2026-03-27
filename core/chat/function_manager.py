@@ -278,7 +278,16 @@ class FunctionManager:
                     # Plugin settings live in user/webui/plugins/{name}.json only
                     # No register_tool_settings — single settings path, no collisions
 
-                    # Track per-tool flags
+                    # Check for function name conflicts BEFORE mutating state
+                    existing_names = {t['function']['name'] for t in self.all_possible_tools}
+                    for tool in tools:
+                        fname = tool['function']['name']
+                        if fname in existing_names:
+                            owner = self._function_module_map.get(fname, 'unknown')
+                            logger.error(f"\033[91mPlugin '{plugin_name}' tool '{fname}' conflicts with existing tool from '{owner}' — plugin NOT loaded\033[0m")
+                            raise ValueError(f"Tool name '{fname}' already registered by '{owner}'")
+
+                    # Track per-tool flags (safe — conflict check passed)
                     for tool in tools:
                         func_name = tool['function']['name']
                         if tool.get('network', False):
@@ -289,15 +298,6 @@ class FunctionManager:
 
                     if mode_filter:
                         self._mode_filters[module_name] = mode_filter
-
-                    # Check for function name conflicts — hard error, don't silently corrupt
-                    existing_names = {t['function']['name'] for t in self.all_possible_tools}
-                    for tool in tools:
-                        fname = tool['function']['name']
-                        if fname in existing_names:
-                            owner = self._function_module_map.get(fname, 'unknown')
-                            logger.error(f"\033[91mPlugin '{plugin_name}' tool '{fname}' conflicts with existing tool from '{owner}' — plugin NOT loaded\033[0m")
-                            raise ValueError(f"Tool name '{fname}' already registered by '{owner}'")
 
                     for tool in tools:
                         self.all_possible_tools.append(tool)

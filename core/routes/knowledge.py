@@ -589,11 +589,10 @@ async def upload_chat_document(chat_name: str, file: UploadFile = File(...), _=D
     tab_id = knowledge.create_tab(filename, scope=rag_scope, tab_type='user')
     if not tab_id:
         # Tab already exists for this filename — delete old entries and re-upload
-        conn = knowledge._get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id FROM knowledge_tabs WHERE name = ? AND scope = ?', (filename, rag_scope))
-        row = cursor.fetchone()
-        conn.close()
+        with knowledge._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM knowledge_tabs WHERE name = ? AND scope = ?', (filename, rag_scope))
+            row = cursor.fetchone()
         if row:
             tab_id = row[0]
             knowledge.delete_entries_by_filename(tab_id, filename)
