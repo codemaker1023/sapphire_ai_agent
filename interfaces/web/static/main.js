@@ -33,6 +33,7 @@ const VIEW_MODULES = {
     mind:     `./views/mind.js${_v}`,
     settings: `./views/settings.js${_v}`,
     help:     `./views/help.js${_v}`,
+    apps:     `./views/apps.js${_v}`,
 };
 
 async function loadViews() {
@@ -130,6 +131,15 @@ async function init() {
                     ui.showToast(`Plugin '${err.plugin}': ${err.error}${hint}`, 'error', 10000);
                 }
             }
+            // Show Apps nav item if any plugin apps exist
+            try {
+                const appsRes = await fetch('/api/apps');
+                if (appsRes.ok) {
+                    const appsData = await appsRes.json();
+                    const navApps = document.getElementById('nav-apps');
+                    if (navApps && appsData.apps?.length > 0) navApps.style.display = '';
+                }
+            } catch {}
         } catch (e) {
             console.warn('[Init] Could not fetch init data:', e);
         }

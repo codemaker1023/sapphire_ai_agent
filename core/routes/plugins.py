@@ -233,6 +233,31 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
     return {"status": "success", "plugin": plugin_name, "enabled": new_state, "reload_required": reload_required}
 
 
+@router.get("/api/apps")
+async def list_apps(_=Depends(require_login)):
+    """List available plugin apps (plugins with an app/ directory)."""
+    from core.plugin_loader import plugin_loader
+    apps = []
+    for name, info in plugin_loader._plugins.items():
+        if not info.get("loaded"):
+            continue
+        manifest = info.get("manifest", {})
+        app_config = manifest.get("capabilities", {}).get("app")
+        if not app_config:
+            # Also check for app/ dir even without manifest declaration
+            app_dir = Path(info["path"]) / "app"
+            if not app_dir.exists():
+                continue
+            app_config = {}
+        apps.append({
+            "name": name,
+            "label": app_config.get("label", manifest.get("display_name", name)),
+            "icon": app_config.get("icon", manifest.get("emoji", "")),
+            "description": app_config.get("description", manifest.get("description", "")),
+        })
+    return {"apps": apps}
+
+
 @router.post("/api/plugins/rescan")
 async def rescan_plugins(_=Depends(require_login)):
     """Scan for new/removed plugin folders without restart."""
