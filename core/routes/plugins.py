@@ -258,6 +258,85 @@ async def list_apps(_=Depends(require_login)):
     return {"apps": apps}
 
 
+@router.get("/api/themes")
+async def list_themes(_=Depends(require_login)):
+    """List all available themes — core + plugin manifest themes."""
+    themes = []
+
+    # 1. Core themes (static/themes/)
+    themes_dir = PROJECT_ROOT / "interfaces" / "web" / "static" / "themes"
+    themes_json = themes_dir / "themes.json"
+    core_names = []
+    if themes_json.exists():
+        try:
+            data = json.loads(themes_json.read_text(encoding='utf-8'))
+            core_names = data.get("themes", [])
+        except Exception:
+            pass
+
+    for name in core_names:
+        css_path = themes_dir / f"{name}.css"
+        preview = _extract_css_preview(css_path) if css_path.exists() else {}
+        themes.append({
+            "id": name,
+            "name": name.replace('-', ' ').replace('_', ' ').title(),
+            "source": "core",
+            "css": f"/static/themes/{name}.css",
+            "scripts": [],
+            "preview": preview,
+        })
+
+    # 2. Plugin manifest themes (capabilities.themes)
+    from core.plugin_loader import plugin_loader
+    for pname, info in plugin_loader._plugins.items():
+        if not info.get("loaded"):
+            continue
+        manifest = info.get("manifest", {})
+        theme_defs = manifest.get("capabilities", {}).get("themes", [])
+        for td in theme_defs:
+            tid = td.get("id", "")
+            if not tid:
+                continue
+            css_path = td.get("css", "")
+            scripts = td.get("scripts", [])
+            # Resolve paths relative to plugin web serving
+            css_url = f"/plugin-web/{pname}/{css_path}" if css_path else ""
+            script_urls = [f"/plugin-web/{pname}/{s}" for s in scripts]
+            themes.append({
+                "id": f"plugin-{pname}-{tid}",
+                "name": td.get("name", tid.title()),
+                "icon": td.get("icon", ""),
+                "description": td.get("description", ""),
+                "source": "plugin",
+                "plugin": pname,
+                "css": css_url,
+                "scripts": script_urls,
+                "preview": td.get("preview", {}),
+            })
+
+    return {"themes": themes}
+
+
+def _extract_css_preview(css_path):
+    """Parse key CSS variables from a theme file for preview swatches."""
+    try:
+        text = css_path.read_text(encoding='utf-8')
+        import re
+        colors = {}
+        for var, key in [('--bg:', 'bg'), ('--bg-secondary:', 'bg2'),
+                         ('--text:', 'text'), ('--trim:', 'trim'),
+                         ('--accent:', 'accent'), ('--border:', 'border')]:
+            m = re.search(rf'{re.escape(var)}\s*(#[0-9a-fA-F]{{3,8}}|rgba?\([^)]+\))', text)
+            if m:
+                colors[key] = m.group(1).strip().rstrip(';')
+        # Fallback accent to trim if not found
+        if 'trim' in colors and 'accent' not in colors:
+            colors['accent'] = colors['trim']
+        return colors
+    except Exception:
+        return {}
+
+
 @router.post("/api/plugins/rescan")
 async def rescan_plugins(_=Depends(require_login)):
     """Scan for new/removed plugin folders without restart."""
