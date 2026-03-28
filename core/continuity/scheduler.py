@@ -325,6 +325,14 @@ class ContinuityScheduler:
             "created": _user_now().isoformat()
         }
         
+        # Auto-generate webhook secret if not provided
+        if task_type == "webhook":
+            tc = task.get("trigger_config", {})
+            if not tc.get("secret"):
+                import secrets as _secrets
+                tc["secret"] = _secrets.token_urlsafe(32)
+                task["trigger_config"] = tc
+
         # Validate cron
         try:
             _get_croniter()(task["schedule"], _user_now())

@@ -233,24 +233,24 @@ def _format_time(dt_str):
         return dt_str
 
 
-# Short ID map — maps #1, #2 etc to real Google event IDs within a session
-_id_map = {}
+# Short ID map — maps #1, #2 etc to real Google event IDs, scoped per-request
+from contextvars import ContextVar
+_id_map_var: ContextVar[dict] = ContextVar('gcal_id_map', default={})
 
 
 def _format_events(events, title_line, now=None):
     """Format a list of events into AI-digestible text. Labels past/current if now is provided."""
-    global _id_map
     if not events:
         return f"{title_line}\nNo events scheduled."
 
-    _id_map.clear()
+    id_map = {}
     lines = [title_line]
     total_minutes = 0
 
     for i, event in enumerate(events, 1):
         summary = event.get('summary', '(No title)')
         real_id = event.get('id', '')
-        _id_map[str(i)] = real_id
+        id_map[str(i)] = real_id
         start = event.get('start', {})
         end = event.get('end', {})
 
@@ -282,6 +282,7 @@ def _format_events(events, title_line, now=None):
     hours_busy = total_minutes / 60
     lines.append(f"\n{len(events)} event{'s' if len(events) != 1 else ''}, ~{hours_busy:.1f} hours scheduled")
 
+    _id_map_var.set(id_map)
     return '\n'.join(lines)
 
 
@@ -476,7 +477,7 @@ def execute(function_name, arguments, config, plugin_settings=None):
         if not event_id:
             return "Event ID is required. Use calendar_today or calendar_range to find IDs.", False
         # Resolve short ID (#1, #2) to real Google ID
-        event_id = _id_map.get(event_id, event_id)
+        event_id = _id_map_var.get({}).get(event_id, event_id)
 
         _, err = _api_delete(token, f'/calendars/{calendar_id}/events/{event_id}')
         if err:

@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Per-plugin toggle locks to prevent double-click races
+_toggle_locks: dict[str, threading.Lock] = {}
+_toggle_locks_guard = threading.Lock()
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 STATIC_DIR = PROJECT_ROOT / "interfaces" / "web" / "static"
 
@@ -138,105 +142,116 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
     if plugin_name in LOCKED_PLUGINS:
         raise HTTPException(status_code=403, detail=f"Cannot disable locked plugin: {plugin_name}")
 
-    merged = _get_merged_plugins()
-    # Accept both static (plugins.json) and backend (plugin_loader) plugins
-    known = set(merged.get("plugins", {}).keys())
+    # Per-plugin lock prevents double-click races
+    with _toggle_locks_guard:
+        if plugin_name not in _toggle_locks:
+            _toggle_locks[plugin_name] = threading.Lock()
+        lock = _toggle_locks[plugin_name]
+    if not lock.acquire(blocking=False):
+        return {"status": "success", "plugin": plugin_name, "enabled": None, "reload_required": False, "note": "toggle already in progress"}
+
     try:
-        from core.plugin_loader import plugin_loader
-        known.update(info["name"] for info in plugin_loader.get_all_plugin_info())
-    except Exception:
-        pass
-    if plugin_name not in known:
-        raise HTTPException(status_code=404, detail=f"Unknown plugin: {plugin_name}")
-
-    enabled = list(merged.get("enabled", []))
-
-    # Determine current state from plugin_loader (handles default_enabled plugins
-    # that aren't in the persisted enabled list)
-    currently_enabled = plugin_name in enabled
-    try:
-        from core.plugin_loader import plugin_loader as _pl
-        info = _pl.get_plugin_info(plugin_name)
-        if info:
-            currently_enabled = info["enabled"]
-    except Exception:
-        pass
-
-    if currently_enabled:
-        if plugin_name in enabled:
-            enabled.remove(plugin_name)
-        new_state = False
-    else:
-        if plugin_name not in enabled:
-            enabled.append(plugin_name)
-        new_state = True
-
-    USER_WEBUI_DIR.mkdir(parents=True, exist_ok=True)
-    user_data = {}
-    if USER_PLUGINS_JSON.exists():
+        merged = _get_merged_plugins()
+        # Accept both static (plugins.json) and backend (plugin_loader) plugins
+        known = set(merged.get("plugins", {}).keys())
         try:
-            with open(USER_PLUGINS_JSON) as f:
-                user_data = json.load(f)
+            from core.plugin_loader import plugin_loader
+            known.update(info["name"] for info in plugin_loader.get_all_plugin_info())
         except Exception:
             pass
-    user_data["enabled"] = enabled
-    tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
-    with open(tmp_path, 'w') as f:
-        json.dump(user_data, f, indent=2)
-    tmp_path.replace(USER_PLUGINS_JSON)
+        if plugin_name not in known:
+            raise HTTPException(status_code=404, detail=f"Unknown plugin: {plugin_name}")
 
-    # Live load/unload — no restart needed for backend plugins
-    reload_required = True
-    try:
-        from core.plugin_loader import plugin_loader
-        if plugin_name in plugin_loader._plugins:
-            if new_state:
-                plugin_loader._plugins[plugin_name]["enabled"] = True
-                loaded = plugin_loader._load_plugin(plugin_name)
-                if not loaded:
-                    # Blocked by verification — revert enabled list
-                    plugin_loader._plugins[plugin_name]["enabled"] = False
-                    if plugin_name in enabled:
-                        enabled.remove(plugin_name)
-                    user_data["enabled"] = enabled
-                    tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
-                    with open(tmp_path, 'w') as f:
-                        json.dump(user_data, f, indent=2)
-                    tmp_path.replace(USER_PLUGINS_JSON)
-                    verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
-                    if "unsigned" in verify_msg:
-                        detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"
-                    elif "hash mismatch" in verify_msg or "tamper" in verify_msg.lower():
-                        detail = "Plugin signature is invalid — files were modified after signing"
-                    else:
-                        detail = f"Plugin blocked: {verify_msg}"
-                    raise HTTPException(status_code=403, detail=detail)
-            else:
-                plugin_loader.unload_plugin(plugin_name)
-                plugin_loader._plugins[plugin_name]["enabled"] = False
-            reload_required = False
+        enabled = list(merged.get("enabled", []))
 
-            # Re-sync toolset so enabled functions reflect the plugin change
+        # Determine current state from plugin_loader (handles default_enabled plugins
+        # that aren't in the persisted enabled list)
+        currently_enabled = plugin_name in enabled
+        try:
+            from core.plugin_loader import plugin_loader as _pl
+            info = _pl.get_plugin_info(plugin_name)
+            if info:
+                currently_enabled = info["enabled"]
+        except Exception:
+            pass
+
+        if currently_enabled:
+            if plugin_name in enabled:
+                enabled.remove(plugin_name)
+            new_state = False
+        else:
+            if plugin_name not in enabled:
+                enabled.append(plugin_name)
+            new_state = True
+
+        USER_WEBUI_DIR.mkdir(parents=True, exist_ok=True)
+        user_data = {}
+        if USER_PLUGINS_JSON.exists():
             try:
-                system = get_system()
-                if system and hasattr(system, 'llm_chat'):
-                    toolset_info = system.llm_chat.function_manager.get_current_toolset_info()
-                    toolset_name = toolset_info.get("name", "custom")
-                    system.llm_chat.function_manager.update_enabled_functions([toolset_name])
-                    from core.event_bus import publish, Events
-                    publish(Events.TOOLSET_CHANGED, {
-                        "name": toolset_name,
-                        "action": "plugin_toggle",
-                        "function_count": toolset_info.get("function_count", 0)
-                    })
+                with open(USER_PLUGINS_JSON) as f:
+                    user_data = json.load(f)
             except Exception:
-                pass  # Best-effort; tools will sync on next chat
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Live plugin toggle failed for {plugin_name}: {e}")
+                pass
+        user_data["enabled"] = enabled
+        tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+        with open(tmp_path, 'w') as f:
+            json.dump(user_data, f, indent=2)
+        tmp_path.replace(USER_PLUGINS_JSON)
 
-    return {"status": "success", "plugin": plugin_name, "enabled": new_state, "reload_required": reload_required}
+        # Live load/unload — no restart needed for backend plugins
+        reload_required = True
+        try:
+            from core.plugin_loader import plugin_loader
+            if plugin_name in plugin_loader._plugins:
+                if new_state:
+                    plugin_loader._plugins[plugin_name]["enabled"] = True
+                    loaded = plugin_loader._load_plugin(plugin_name)
+                    if not loaded:
+                        # Blocked by verification — revert enabled list
+                        plugin_loader._plugins[plugin_name]["enabled"] = False
+                        if plugin_name in enabled:
+                            enabled.remove(plugin_name)
+                        user_data["enabled"] = enabled
+                        tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+                        with open(tmp_path, 'w') as f:
+                            json.dump(user_data, f, indent=2)
+                        tmp_path.replace(USER_PLUGINS_JSON)
+                        verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
+                        if "unsigned" in verify_msg:
+                            detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"
+                        elif "hash mismatch" in verify_msg or "tamper" in verify_msg.lower():
+                            detail = "Plugin signature is invalid — files were modified after signing"
+                        else:
+                            detail = f"Plugin blocked: {verify_msg}"
+                        raise HTTPException(status_code=403, detail=detail)
+                else:
+                    plugin_loader.unload_plugin(plugin_name)
+                    plugin_loader._plugins[plugin_name]["enabled"] = False
+                reload_required = False
+
+                # Re-sync toolset so enabled functions reflect the plugin change
+                try:
+                    system = get_system()
+                    if system and hasattr(system, 'llm_chat'):
+                        toolset_info = system.llm_chat.function_manager.get_current_toolset_info()
+                        toolset_name = toolset_info.get("name", "custom")
+                        system.llm_chat.function_manager.update_enabled_functions([toolset_name])
+                        from core.event_bus import publish, Events
+                        publish(Events.TOOLSET_CHANGED, {
+                            "name": toolset_name,
+                            "action": "plugin_toggle",
+                            "function_count": toolset_info.get("function_count", 0)
+                        })
+                except Exception:
+                    pass  # Best-effort; tools will sync on next chat
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Live plugin toggle failed for {plugin_name}: {e}")
+
+        return {"status": "success", "plugin": plugin_name, "enabled": new_state, "reload_required": reload_required}
+    finally:
+        lock.release()
 
 
 @router.get("/api/apps")

@@ -275,9 +275,15 @@ class SettingsManager:
                 logger.error(f"Failed to create example file: {e}")
     
     def get(self, key, default=None):
-        """Get a setting value"""
+        """Get a setting value (returns copies of mutable types to prevent reference leaks)"""
         with self._lock:
-            return self._config.get(key, default)
+            val = self._config.get(key, default)
+            if isinstance(val, dict):
+                import copy
+                return copy.deepcopy(val)
+            if isinstance(val, list):
+                return val.copy()
+            return val
     
     # Settings locked in managed mode (env var only)
     MANAGED_LOCKED_KEYS = {

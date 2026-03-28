@@ -105,6 +105,11 @@ def validate_code(code, strictness='strict'):
         blocked_imports = blocked_imports | MANAGED_BLOCKED_IMPORTS
         blocked_attrs = blocked_attrs | MANAGED_BLOCKED_ATTRS
 
+    # Track aliases: if someone writes `x = os`, then `x` is an alias for `os`
+    # Also track `from X import Y` aliases and blocked call aliases
+    aliases = {}  # name -> original module/blocked name
+    blocked_names = set(BLOCKED_CALLS)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -113,6 +118,9 @@ def validate_code(code, strictness='strict'):
                     return False, f"Blocked import: {mod}"
                 if strictness == 'strict' and mod not in ALLOWED_STRICT:
                     return False, f"Import '{mod}' not in allowlist"
+                # Track import aliases: `import os as o` -> aliases['o'] = 'os'
+                local_name = alias.asname or alias.name.split('.')[0]
+                aliases[local_name] = mod
 
         elif isinstance(node, ast.ImportFrom):
             if node.module:
@@ -121,14 +129,37 @@ def validate_code(code, strictness='strict'):
                     return False, f"Blocked import: {mod}"
                 if strictness == 'strict' and mod not in ALLOWED_STRICT:
                     return False, f"Import '{mod}' not in allowlist"
+                # Track `from os import system as sys_call`
+                if node.names:
+                    for alias in node.names:
+                        local_name = alias.asname or alias.name
+                        # If importing a blocked call (e.g. `from builtins import eval`)
+                        if alias.name in BLOCKED_CALLS:
+                            blocked_names.add(local_name)
+
+        elif isinstance(node, ast.Assign):
+            # Track simple aliasing: `x = os` or `x = eval`
+            if (len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and isinstance(node.value, ast.Name)):
+                source = node.value.id
+                target = node.targets[0].id
+                # Resolve through existing aliases
+                resolved = aliases.get(source, source)
+                aliases[target] = resolved
+                if source in blocked_names:
+                    blocked_names.add(target)
 
         elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id in BLOCKED_CALLS:
-                return False, f"Blocked call: {node.func.id}()"
+            if isinstance(node.func, ast.Name) and node.func.id in blocked_names:
+                original = aliases.get(node.func.id, node.func.id)
+                return False, f"Blocked call: {original}()"
 
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            if (node.value.id, node.attr) in blocked_attrs:
-                return False, f"Blocked: {node.value.id}.{node.attr}"
+            # Resolve the name through aliases
+            resolved = aliases.get(node.value.id, node.value.id)
+            if (resolved, node.attr) in blocked_attrs:
+                return False, f"Blocked: {resolved}.{node.attr}"
 
     return True, ""
 

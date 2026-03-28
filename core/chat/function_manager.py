@@ -500,6 +500,11 @@ class FunctionManager:
                 logger.warning(f"Duplicate tool '{name}' removed from enabled_tools")
         return deduped
 
+    def snapshot_executors(self) -> dict:
+        """Snapshot current execution_map — use to protect against reload during tool execution."""
+        with self._tools_lock:
+            return dict(self.execution_map)
+
     def update_enabled_functions(self, enabled_names: list):
         """Update enabled tools based on function names from config or ability name."""
         with self._tools_lock:
@@ -743,7 +748,7 @@ class FunctionManager:
         except Exception:
             return None
 
-    def execute_function(self, function_name, arguments, scopes=None, allowed_tools=None):
+    def execute_function(self, function_name, arguments, scopes=None, allowed_tools=None, executor_snapshot=None):
         """Execute a function using the mapped executor.
 
         scopes: optional dict to re-apply ContextVars before execution.
@@ -752,6 +757,8 @@ class FunctionManager:
         allowed_tools: optional set/list of function names that were sent to the LLM.
                        When provided, validates against this snapshot instead of
                        current enabled_tools (prevents race conditions on plugin reload).
+        executor_snapshot: optional dict of {name: executor} captured at stream start.
+                           Prevents reload from yanking executor mid-chat.
         """
         if scopes:
             restore_scopes(scopes)
@@ -819,7 +826,8 @@ class FunctionManager:
                 success = False
 
         else:
-            executor = self.execution_map.get(function_name)
+            emap = executor_snapshot if executor_snapshot else self.execution_map
+            executor = emap.get(function_name)
             if not executor:
                 logger.error(f"No executor found for function '{function_name}'")
                 result = f"The tool {function_name} is recognized but has no execution logic."

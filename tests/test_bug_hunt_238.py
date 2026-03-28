@@ -327,13 +327,12 @@ class TestPromptImportValidation:
 class TestAgentBatchAtomicity:
     """Events were published outside the lock, allowing races."""
 
-    def test_check_batch_complete_publishes_inside_lock(self):
-        """Verify batch completion events fire while lock is held."""
+    def test_check_batch_complete_publishes_outside_lock(self):
+        """Verify batch completion events fire OUTSIDE lock to prevent deadlock with EventBus."""
         from core.agents.manager import AgentManager
         from core.agents.base_worker import BaseWorker
 
         mgr = AgentManager()
-        publish_calls = []
 
         class FakeAgent(BaseWorker):
             def __init__(self, agent_id, name, chat_name):
@@ -354,7 +353,6 @@ class TestAgentBatchAtomicity:
 
         lock_held_during_publish = []
 
-        original_publish = None
         def tracking_publish(event, data):
             # Check if the manager's lock is held (locked() returns True if acquired)
             lock_held_during_publish.append(mgr._lock.locked())
@@ -362,9 +360,9 @@ class TestAgentBatchAtomicity:
         with patch('core.agents.manager.publish', side_effect=tracking_publish):
             mgr._check_batch_complete('a1', 'test-chat')
 
-        # All publish calls should have been made while lock was held
+        # Events must fire OUTSIDE lock to prevent deadlock with EventBus subscribers
         assert len(lock_held_during_publish) > 0, "Should have published events"
-        assert all(lock_held_during_publish), "All publish calls should be inside the lock"
+        assert not any(lock_held_during_publish), "Publish calls must be outside the lock (deadlock prevention)"
 
 
 # =============================================================================
