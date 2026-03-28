@@ -131,13 +131,75 @@ async function init() {
                     ui.showToast(`Plugin '${err.plugin}': ${err.error}${hint}`, 'error', 10000);
                 }
             }
-            // Show Apps nav item if any plugin apps exist
+            // Discover plugin apps — promote nav apps, show Apps grid if others exist
             try {
                 const appsRes = await fetch('/api/apps');
                 if (appsRes.ok) {
                     const appsData = await appsRes.json();
-                    const navApps = document.getElementById('nav-apps');
-                    if (navApps && appsData.apps?.length > 0) navApps.style.display = '';
+                    const allApps = appsData.apps || [];
+                    const navApps = allApps.filter(a => a.nav);
+                    const gridApps = allApps.filter(a => !a.nav);
+
+                    // Inject nav-promoted plugin apps into the navrail
+                    const MAX_NAV_APPS = 3;
+                    const rail = document.getElementById('nav-rail');
+                    const navAppsBtn = document.getElementById('nav-apps');
+                    for (const app of navApps.slice(0, MAX_NAV_APPS)) {
+                        // Create nav item
+                        const btn = document.createElement('button');
+                        btn.className = 'nav-item';
+                        btn.dataset.view = `app-${app.name}`;
+                        btn.innerHTML = `<span class="nav-icon">${app.icon || '📦'}</span><span class="nav-label">${app.label}</span>`;
+                        if (navAppsBtn) rail.insertBefore(btn, navAppsBtn);
+                        else {
+                            const spacer = rail.querySelector('.nav-spacer');
+                            if (spacer) rail.insertBefore(btn, spacer);
+                            else rail.appendChild(btn);
+                        }
+
+                        // Create view container
+                        const appContent = document.getElementById('app-content');
+                        if (appContent) {
+                            const viewDiv = document.createElement('div');
+                            viewDiv.id = `view-app-${app.name}`;
+                            viewDiv.className = 'view';
+                            viewDiv.style.display = 'none';
+                            appContent.appendChild(viewDiv);
+                        }
+
+                        // Register router view
+                        const appName = app.name;
+                        registerView(`app-${appName}`, {
+                            init(el) {},
+                            async show() {
+                                const el = document.getElementById(`view-app-${appName}`);
+                                if (!el) return;
+                                if (el.dataset.loaded) return;
+                                const v = document.querySelector('meta[name="boot-version"]')?.content || '';
+                                try {
+                                    const mod = await import(`/plugin-web/${appName}/app/index.js?v=${v}`);
+                                    if (mod.render) await mod.render(el);
+                                    if (mod.cleanup) el._appCleanup = mod.cleanup;
+                                    el.dataset.loaded = 'true';
+                                } catch (e) {
+                                    el.innerHTML = `<div class="view-placeholder"><h2>Failed to load ${appName}</h2><p style="color:var(--text-muted)">${e.message}</p></div>`;
+                                }
+                            },
+                            hide() {
+                                const el = document.getElementById(`view-app-${appName}`);
+                                if (el?._appCleanup) {
+                                    try { el._appCleanup(); } catch {}
+                                    el._appCleanup = null;
+                                    el.dataset.loaded = '';
+                                }
+                            }
+                        });
+                    }
+
+                    // Show Apps grid nav if there are non-nav apps (or overflow nav apps)
+                    const appsNavBtn = document.getElementById('nav-apps');
+                    const hasGridApps = gridApps.length > 0 || navApps.length > MAX_NAV_APPS;
+                    if (appsNavBtn && hasGridApps) appsNavBtn.style.display = '';
                 }
             } catch {}
         } catch (e) {

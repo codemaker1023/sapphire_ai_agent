@@ -37,6 +37,7 @@ The `capabilities.app` fields:
 - `label` — display name on the app tile (falls back to plugin display_name)
 - `icon` — emoji shown on the tile (falls back to plugin emoji)
 - `description` — short description shown below the tile
+- `nav` — if `true`, the app gets its own icon in the navrail instead of only appearing in the Apps grid (max 3 nav apps)
 
 ### app/index.js
 
@@ -117,10 +118,38 @@ import * as ui from '../../ui.js';
 ui.showToast('Operation complete', 'success');
 ```
 
+## Nav Promotion
+
+By default, apps appear in the Apps grid. If your app is a primary feature users access frequently, you can promote it to the navrail:
+
+```json
+{
+  "capabilities": {
+    "app": {
+      "label": "Mission Control",
+      "icon": "🎯",
+      "description": "Visual command dashboard",
+      "nav": true
+    }
+  }
+}
+```
+
+With `"nav": true`:
+- Your app gets its own icon in the navrail (between Settings and Apps)
+- Clicking it loads your `app/index.js` directly — no Apps grid in between
+- The URL hash is `#app-{plugin-name}` (bookmarkable)
+- `cleanup()` is called when navigating away, `render()` on return
+
+**Limits:** Maximum 3 nav-promoted apps. Beyond that, extras appear in the Apps grid only. Use this sparingly — it's for primary workflows like dashboards, not utilities.
+
+**Important:** Do NOT inject nav items via DOM manipulation (`document.createElement`, `insertBefore`, etc.). Use `"nav": true` in your manifest. Sapphire handles nav item creation, view container setup, and router registration automatically.
+
 ## How It Works
 
-- The Apps nav item only appears if at least one plugin has an app
-- Clicking an app tile loads your `app/index.js` via dynamic import
+- The Apps nav item only appears if at least one non-nav plugin has an app
+- Nav-promoted apps get their own navrail icon automatically
+- Clicking an app tile or nav icon loads your `app/index.js` via dynamic import
 - Your `render(container)` function receives a DOM element to fill
 - When the user navigates away, `cleanup()` is called
 - Your app runs inline (not iframe) — full access to Sapphire's JS modules
@@ -133,3 +162,4 @@ ui.showToast('Operation complete', 'success');
 - Import from `../../shared/fetch.js` for CSRF-aware API calls
 - Your app inherits Sapphire's dark theme automatically
 - Keep your app self-contained — don't modify the nav rail or other views
+- Prefer `"nav": true` over DOM manipulation — it's cleaner and survives Sapphire updates

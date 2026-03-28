@@ -43,7 +43,11 @@ body {
     align-items: center;
     padding: 8px 0;
     gap: 4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none; /* Firefox */
 }
+#nav-rail::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
 #app-content {
     margin-left: 64px;

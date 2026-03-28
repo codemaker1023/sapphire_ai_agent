@@ -254,6 +254,7 @@ async def list_apps(_=Depends(require_login)):
             "label": app_config.get("label", manifest.get("display_name", name)),
             "icon": app_config.get("icon", manifest.get("emoji", "")),
             "description": app_config.get("description", manifest.get("description", "")),
+            "nav": app_config.get("nav", False),
         })
     return {"apps": apps}
 
