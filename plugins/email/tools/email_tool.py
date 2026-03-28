@@ -566,7 +566,7 @@ def _read_email(index):
         return f"Invalid index {index}. Range: 1-{len(cache['raw'])}.", False
 
     msg = cache["raw"][index - 1]
-    sender = msg.get('From', 'Unknown')
+    sender = _extract_sender_name(msg.get('From', 'Unknown'))
     subject = _decode_header_value(msg.get('Subject', '(no subject)'))
     date_str = msg.get('Date', '?')
     body = _extract_body(msg)

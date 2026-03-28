@@ -31,7 +31,7 @@ def _get_track_names(glb_path):
         return []
 
 
-def run(event):
+def prompt_inject(event):
     model = _get_active_model()
     glb_path = USER_AVATAR_DIR / model
     tracks = _get_track_names(glb_path)

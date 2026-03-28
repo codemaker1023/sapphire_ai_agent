@@ -128,12 +128,17 @@ def _time_ago(dt):
 def execute(function_name, arguments, config):
     try:
         if function_name == "telegram_send":
-            return telegram_send(arguments, config), True
+            result = telegram_send(arguments, config)
         elif function_name == "telegram_get_chats":
-            return telegram_get_chats(arguments, config), True
+            result = telegram_get_chats(arguments, config)
         elif function_name == "telegram_read_messages":
-            return telegram_read_messages(arguments, config), True
-        return f"Unknown function: {function_name}", False
+            result = telegram_read_messages(arguments, config)
+        else:
+            return f"Unknown function: {function_name}", False
+        # Inner functions return error strings on failure
+        if isinstance(result, str) and result.startswith(("Failed", "Missing", "Error", "Not connected", "No ", "Account ", "Telegram daemon", "chat_id")):
+            return result, False
+        return result, True
     except Exception as e:
         logger.error(f"[TELEGRAM] Tool error: {e}")
         return f"Error: {e}", False

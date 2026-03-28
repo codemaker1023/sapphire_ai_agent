@@ -572,6 +572,16 @@ async def install_plugin(
             current = fm.current_toolset_name
             if current:
                 fm.update_enabled_functions([current])
+            try:
+                from core.event_bus import publish, Events
+                toolset_info = fm.get_current_toolset_info()
+                publish(Events.TOOLSET_CHANGED, {
+                    "name": current or "custom",
+                    "action": "plugin_install",
+                    "function_count": toolset_info.get("function_count", 0)
+                })
+            except Exception:
+                pass
 
         return {
             "status": "ok",
@@ -607,6 +617,23 @@ async def uninstall_plugin_endpoint(plugin_name: str, _=Depends(require_login)):
         raise HTTPException(status_code=403, detail="Cannot uninstall system plugins")
     try:
         plugin_loader.uninstall_plugin(plugin_name)
+        # Sync toolset and notify frontend
+        try:
+            system = get_system()
+            if system and system.llm_chat:
+                fm = system.llm_chat.function_manager
+                current = fm.current_toolset_name
+                if current:
+                    fm.update_enabled_functions([current])
+                from core.event_bus import publish, Events
+                toolset_info = fm.get_current_toolset_info()
+                publish(Events.TOOLSET_CHANGED, {
+                    "name": current or "custom",
+                    "action": "plugin_uninstall",
+                    "function_count": toolset_info.get("function_count", 0)
+                })
+        except Exception:
+            pass
         return {"status": "ok", "plugin": plugin_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

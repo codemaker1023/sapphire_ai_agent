@@ -109,10 +109,12 @@ class CredentialsManager:
                 logger.info(f"Loaded credentials from {CREDENTIALS_FILE}")
             except Exception as e:
                 logger.critical(f"Credentials file corrupted: {e}")
-                # Back up corrupt file before resetting
+                # Back up corrupt file before resetting (timestamped to preserve history)
                 try:
-                    backup = CREDENTIALS_FILE.with_suffix('.json.corrupt')
+                    from datetime import datetime
                     import shutil
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    backup = CREDENTIALS_FILE.with_suffix(f'.json.corrupt.{timestamp}')
                     shutil.copy2(CREDENTIALS_FILE, backup)
                     logger.critical(f"Corrupt credentials backed up to {backup}")
                 except Exception as backup_err:

@@ -475,17 +475,14 @@ class SettingsManager:
             self._runtime = {}  # Clear runtime overrides too
             self._merge_settings()
             
-            # Actually delete/recreate the settings file
+            # Atomically replace the settings file
             user_path = self.BASE_DIR / 'user' / 'settings.json'
             try:
-                if user_path.exists():
-                    user_path.unlink()
-                    logger.info(f"Deleted user settings file: {user_path}")
-                
-                # Write minimal fresh file
                 user_path.parent.mkdir(exist_ok=True)
-                with open(user_path, 'w', encoding='utf-8') as f:
+                tmp_path = user_path.with_suffix('.json.tmp')
+                with open(tmp_path, 'w', encoding='utf-8') as f:
                     json.dump({"_comment": "Your custom settings - edit freely or use web UI"}, f, indent=2)
+                tmp_path.replace(user_path)
                 
                 self._update_mtime()
                 logger.info("Settings reset to defaults")

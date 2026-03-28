@@ -177,15 +177,15 @@ class AgentManager:
                 dismissed_ids.append((a.id, a.name))
                 self._agents.pop(a.id, None)
 
-            # Publish events inside lock to prevent new agents from racing
-            for aid, aname in dismissed_ids:
-                publish(Events.AGENT_DISMISSED, {'id': aid, 'name': aname})
+        # Publish events OUTSIDE lock to prevent deadlock with EventBus
+        for aid, aname in dismissed_ids:
+            publish(Events.AGENT_DISMISSED, {'id': aid, 'name': aname})
 
-            publish(Events.AGENT_BATCH_COMPLETE, {
-                'chat_name': chat_name,
-                'report': report,
-                'agent_count': len(dismissed_ids),
-            })
+        publish(Events.AGENT_BATCH_COMPLETE, {
+            'chat_name': chat_name,
+            'report': report,
+            'agent_count': len(dismissed_ids),
+        })
 
         logger.info(f"Agent batch complete for chat '{chat_name}': {len(dismissed_ids)} agents reported")
 
