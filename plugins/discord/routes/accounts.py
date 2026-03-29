@@ -80,12 +80,18 @@ async def delete_account(**kwargs):
     if not account_name:
         return {"error": "Account name required"}
 
-    # Disconnect if running
-    from plugins.discord.daemon import get_client, _clients
+    # Disconnect if running — must close on the daemon's event loop, not FastAPI's
+    from plugins.discord.daemon import get_client, _clients, _loop
     client = get_client(account_name)
     if client:
         try:
-            await client.close()
+            import asyncio
+            loop = _loop
+            if loop and loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(client.close(), loop)
+                future.result(timeout=10)
+            else:
+                await client.close()
         except Exception:
             pass
         _clients.pop(account_name, None)

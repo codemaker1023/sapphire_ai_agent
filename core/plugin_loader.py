@@ -97,6 +97,9 @@ class PluginLoader:
         self._event_sources: Dict[str, list] = {}
         # Daemon reply handlers: {plugin_name: callable(task, event_data_dict, response_text)}
         self._reply_handlers: Dict[str, Callable] = {}
+        # Per-plugin reload locks — serializes reload against concurrent toggle/watcher
+        self._reload_locks: Dict[str, threading.Lock] = {}
+        self._reload_locks_lock = threading.Lock()
 
     def _is_managed(self):
         """Check if running in managed/Docker mode (single source of truth)."""
@@ -448,6 +451,7 @@ class PluginLoader:
             mod = importlib.util.module_from_spec(spec)
             sys.modules[pkg_name] = mod
             spec.loader.exec_module(mod)
+            mod._pkg_name = pkg_name  # For sys.modules cleanup on unload
             return mod
         except Exception as e:
             logger.error(f"[PLUGINS] Failed to load daemon module {full_path}: {e}", exc_info=True)
@@ -560,6 +564,11 @@ class PluginLoader:
                         logger.info(f"[PLUGINS] Stopped daemon for {name}")
                     except Exception as e:
                         logger.warning(f"[PLUGINS] Failed to stop daemon for {name}: {e}")
+                    # Clean sys.modules so file handles are released (needed for Windows rmtree)
+                    pkg = getattr(daemon_mod, "_pkg_name", None)
+                    if pkg:
+                        import sys
+                        sys.modules.pop(pkg, None)
                     self._plugins[name].pop("daemon_module", None)
                 self._plugins[name]["loaded"] = False
         logger.info(f"[PLUGINS] Unloaded: {name}")
@@ -601,48 +610,56 @@ class PluginLoader:
         except Exception as e:
             logger.warning(f"[PLUGINS] Failed to update enabled list: {e}")
 
+    def _get_reload_lock(self, name: str) -> threading.Lock:
+        with self._reload_locks_lock:
+            if name not in self._reload_locks:
+                self._reload_locks[name] = threading.Lock()
+            return self._reload_locks[name]
+
     def reload_plugin(self, name: str):
         """Unload and reload a plugin. Safe — if reload fails, plugin stays unloaded.
 
         Re-reads manifest from disk so code/settings changes take effect.
         Re-verifies signature to catch tampering since initial scan.
         Also re-enables plugin tools in the active toolset.
+        Per-plugin lock prevents concurrent reload/toggle races.
         """
-        self.unload_plugin(name)
-        with self._lock:
-            should_load = name in self._plugins and self._plugins[name]["enabled"]
-            if name in self._plugins:
-                plugin_path = self._plugins[name]["path"]
-                # Re-read manifest from disk (tool code or settings may have changed)
-                manifest_path = plugin_path / "plugin.json"
-                if manifest_path.exists():
-                    try:
-                        self._plugins[name]["manifest"] = json.loads(
-                            manifest_path.read_text(encoding="utf-8")
-                        )
-                    except Exception as e:
-                        logger.warning(f"[PLUGINS] Failed to re-read manifest for {name}: {e}")
-                # Re-verify signature (code may have been tampered with since scan)
-                verified, verify_msg, verify_meta = verify_plugin(plugin_path)
-                self._plugins[name]["verified"] = verified
-                self._plugins[name]["verify_msg"] = verify_msg
-                self._plugins[name]["verified_author"] = verify_meta.get("author")
-        if should_load:
-            try:
-                self._load_plugin(name)
-                # Re-enable tools in active toolset
-                if self._function_manager:
-                    current = self._function_manager.current_toolset_name
-                    if current:
-                        self._function_manager.update_enabled_functions([current])
-                logger.info(f"[PLUGINS] Reloaded: {name}")
-                from core.event_bus import publish, Events
-                publish(Events.PLUGIN_RELOADED, {"plugin": name})
-            except Exception as e:
-                logger.error(f"[PLUGINS] Reload failed for {name}: {e}", exc_info=True)
-                with self._lock:
-                    if name in self._plugins:
-                        self._plugins[name]["loaded"] = False
+        with self._get_reload_lock(name):
+            self.unload_plugin(name)
+            with self._lock:
+                should_load = name in self._plugins and self._plugins[name]["enabled"]
+                if name in self._plugins:
+                    plugin_path = self._plugins[name]["path"]
+                    # Re-read manifest from disk (tool code or settings may have changed)
+                    manifest_path = plugin_path / "plugin.json"
+                    if manifest_path.exists():
+                        try:
+                            self._plugins[name]["manifest"] = json.loads(
+                                manifest_path.read_text(encoding="utf-8")
+                            )
+                        except Exception as e:
+                            logger.warning(f"[PLUGINS] Failed to re-read manifest for {name}: {e}")
+                    # Re-verify signature (code may have been tampered with since scan)
+                    verified, verify_msg, verify_meta = verify_plugin(plugin_path)
+                    self._plugins[name]["verified"] = verified
+                    self._plugins[name]["verify_msg"] = verify_msg
+                    self._plugins[name]["verified_author"] = verify_meta.get("author")
+            if should_load:
+                try:
+                    self._load_plugin(name)
+                    # Re-enable tools in active toolset
+                    if self._function_manager:
+                        current = self._function_manager.current_toolset_name
+                        if current:
+                            self._function_manager.update_enabled_functions([current])
+                    logger.info(f"[PLUGINS] Reloaded: {name}")
+                    from core.event_bus import publish, Events
+                    publish(Events.PLUGIN_RELOADED, {"plugin": name})
+                except Exception as e:
+                    logger.error(f"[PLUGINS] Reload failed for {name}: {e}", exc_info=True)
+                    with self._lock:
+                        if name in self._plugins:
+                            self._plugins[name]["loaded"] = False
 
     def uninstall_plugin(self, name: str):
         """Fully remove a user plugin — unload, delete files, settings, and state."""
