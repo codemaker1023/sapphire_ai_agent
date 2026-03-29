@@ -189,7 +189,7 @@ async def _connect_single(account_name: str, token: str = None):
 
     @client.event
     async def on_message(message):
-        logger.info(f"[DISCORD] on_message fired: author={message.author} bot={message.author.bot} content={message.content[:50] if message.content else '(empty)'}")
+        logger.debug(f"[DISCORD] on_message fired: author={message.author} bot={message.author.bot} content={message.content[:50] if message.content else '(empty)'}")
         # Ignore own messages and other bots
         if message.author == client.user or message.author.bot:
             return

@@ -1059,9 +1059,15 @@ class PluginLoader:
         """Get info for all discovered plugins."""
         return [self.get_plugin_info(n) for n in self._plugins]
 
+    _plugin_state_cache: dict = {}
+    _plugin_state_cache_lock = threading.Lock()
+
     def get_plugin_state(self, name: str) -> PluginState:
-        """Get the PluginState helper for a plugin."""
-        return PluginState(name)
+        """Get the PluginState helper for a plugin (cached singleton per name)."""
+        with self._plugin_state_cache_lock:
+            if name not in self._plugin_state_cache:
+                self._plugin_state_cache[name] = PluginState(name)
+            return self._plugin_state_cache[name]
 
     def get_credentials(self):
         """Get the credentials manager singleton. Convenience for plugins."""

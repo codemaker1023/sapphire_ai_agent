@@ -69,7 +69,7 @@ async function openApp(appName, container) {
         <div class="app-host">
             <div class="app-host-header">
                 <button class="app-back-btn" title="Back to Apps">&larr;</button>
-                <span class="app-host-title">${app.icon || '📦'} ${app.label}</span>
+                <span class="app-host-title">${_esc(app.icon || '📦')} ${_esc(app.label)}</span>
             </div>
             <div class="app-host-content" id="app-content-${appName}"></div>
         </div>`;
@@ -92,8 +92,8 @@ async function openApp(appName, container) {
         console.error(`[Apps] Failed to load app '${appName}':`, e);
         appContent.innerHTML = `
             <div class="view-placeholder">
-                <h2>Failed to load ${app.label}</h2>
-                <p style="color:var(--text-muted)">${e.message}</p>
+                <h2>Failed to load ${_esc(app.label)}</h2>
+                <p style="color:var(--text-muted)">${_esc(e.message)}</p>
             </div>`;
     }
 

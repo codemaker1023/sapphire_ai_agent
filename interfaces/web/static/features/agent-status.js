@@ -330,6 +330,14 @@ export function initAgentStatus() {
         setTimeout(() => drainAgentReport(), 500);
     });
 
+    // Server restart — wipe stale pills, re-poll for actual state
+    eventBus.on('server_restarted', () => {
+        agents.clear();
+        workspaces.clear();
+        renderPills();
+        poll();
+    });
+
     // Safety net: periodically retry stuck reports (e.g. user never returns to agent's chat)
     setInterval(() => {
         if (!pendingAgentReport) return;

@@ -255,7 +255,7 @@ def _install(slug, plugin_settings=None):
             plugin_author = manifest.get("author", "unknown")
 
             # Check if already installed
-            from core.plugin_loader import plugin_loader, PluginState
+            from core.plugin_loader import plugin_loader
             # __file__ = plugins/sapphire-store/tools/store_tools.py → 4 parents up to project root
             PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
             USER_PLUGINS_DIR = PROJECT_ROOT / "user" / "plugins"
@@ -279,7 +279,7 @@ def _install(slug, plugin_settings=None):
 
             # Write install metadata
             from datetime import datetime
-            state = PluginState(plugin_name)
+            state = plugin_loader.get_plugin_state(plugin_name)
             state.save("installed_from", github_url)
             state.save("install_method", "github_url")
             state.save("installed_at", datetime.utcnow().isoformat() + "Z")

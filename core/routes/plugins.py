@@ -411,7 +411,7 @@ async def install_plugin(
     if not url and not file:
         raise HTTPException(status_code=400, detail="Provide a GitHub URL or zip file")
 
-    from core.plugin_loader import plugin_loader, PluginState, USER_PLUGINS_DIR
+    from core.plugin_loader import plugin_loader, USER_PLUGINS_DIR
 
     tmp_zip = None
     tmp_dir = None
@@ -575,7 +575,7 @@ async def install_plugin(
 
         # ── Write install metadata to plugin state ──
         from datetime import datetime
-        state = PluginState(name)
+        state = plugin_loader.get_plugin_state(name)
         if url:
             state.save("installed_from", url.strip())
             state.save("install_method", "github_url")
@@ -664,13 +664,13 @@ async def uninstall_plugin_endpoint(plugin_name: str, _=Depends(require_login)):
 async def check_plugin_update(plugin_name: str, _=Depends(require_login)):
     """Check if a newer version is available on GitHub."""
     import re
-    from core.plugin_loader import plugin_loader, PluginState
+    from core.plugin_loader import plugin_loader
 
     info = plugin_loader.get_plugin_info(plugin_name)
     if not info:
         raise HTTPException(status_code=404, detail=f"Unknown plugin: {plugin_name}")
 
-    state = PluginState(plugin_name)
+    state = plugin_loader.get_plugin_state(plugin_name)
     source_url = state.get("installed_from")
     if not source_url or "github.com" not in source_url:
         return {"update_available": False, "reason": "no_source"}
