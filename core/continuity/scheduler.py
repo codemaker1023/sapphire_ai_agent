@@ -680,6 +680,20 @@ class ContinuityScheduler:
 
         task_name = task.get("name", "Unnamed")
 
+        # Auto-filter by account: if task specifies an account in trigger_config,
+        # only process events from that account (e.g., multi-bot Discord/Telegram)
+        trigger_config = task.get("trigger_config", {})
+        task_account = trigger_config.get("account", "")
+        if task_account:
+            try:
+                event_obj = json.loads(event_data) if isinstance(event_data, str) else event_data
+                event_account = event_obj.get("account", "") if isinstance(event_obj, dict) else ""
+                if event_account and event_account != task_account:
+                    logger.debug(f"[Continuity] '{task_name}' skipped — event from '{event_account}', task wants '{task_account}'")
+                    return {"success": False, "error": "Account mismatch"}
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         # Check filter (daemon and webhook tasks)
         if task_type in ("daemon", "webhook"):
             trigger_config = task.get("trigger_config", {})
