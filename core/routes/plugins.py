@@ -203,30 +203,36 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
         try:
             from core.plugin_loader import plugin_loader
             if plugin_name in plugin_loader._plugins:
-                if new_state:
-                    plugin_loader._plugins[plugin_name]["enabled"] = True
-                    loaded = plugin_loader._load_plugin(plugin_name)
-                    if not loaded:
-                        # Blocked by verification — revert enabled list
-                        plugin_loader._plugins[plugin_name]["enabled"] = False
-                        if plugin_name in enabled:
-                            enabled.remove(plugin_name)
-                        user_data["enabled"] = enabled
-                        tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
-                        with open(tmp_path, 'w', encoding='utf-8') as f:
-                            json.dump(user_data, f, indent=2)
-                        tmp_path.replace(USER_PLUGINS_JSON)
-                        verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
-                        if "unsigned" in verify_msg:
-                            detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"
-                        elif "hash mismatch" in verify_msg or "tamper" in verify_msg.lower():
-                            detail = "Plugin signature is invalid — files were modified after signing"
-                        else:
-                            detail = f"Plugin blocked: {verify_msg}"
-                        raise HTTPException(status_code=403, detail=detail)
-                else:
-                    plugin_loader.unload_plugin(plugin_name)
-                    plugin_loader._plugins[plugin_name]["enabled"] = False
+                # Acquire reload lock to serialize against file watcher / reload API
+                with plugin_loader._get_reload_lock(plugin_name):
+                    if new_state:
+                        with plugin_loader._lock:
+                            plugin_loader._plugins[plugin_name]["enabled"] = True
+                        loaded = plugin_loader._load_plugin(plugin_name)
+                        if not loaded:
+                            # Blocked by verification — revert enabled list
+                            with plugin_loader._lock:
+                                plugin_loader._plugins[plugin_name]["enabled"] = False
+                            if plugin_name in enabled:
+                                enabled.remove(plugin_name)
+                            user_data["enabled"] = enabled
+                            tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
+                            with open(tmp_path, 'w', encoding='utf-8') as f:
+                                json.dump(user_data, f, indent=2)
+                            tmp_path.replace(USER_PLUGINS_JSON)
+                            with plugin_loader._lock:
+                                verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
+                            if "unsigned" in verify_msg:
+                                detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"
+                            elif "hash mismatch" in verify_msg or "tamper" in verify_msg.lower():
+                                detail = "Plugin signature is invalid — files were modified after signing"
+                            else:
+                                detail = f"Plugin blocked: {verify_msg}"
+                            raise HTTPException(status_code=403, detail=detail)
+                    else:
+                        plugin_loader.unload_plugin(plugin_name)
+                        with plugin_loader._lock:
+                            plugin_loader._plugins[plugin_name]["enabled"] = False
                 reload_required = False
 
                 # Re-sync toolset so enabled functions reflect the plugin change

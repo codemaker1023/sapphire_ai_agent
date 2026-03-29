@@ -229,9 +229,9 @@ async def _connect_single(account_name: str, token: str = None):
         }
 
         logger.info(f"[DISCORD] Message from {payload['username']} in #{payload['channel_name']} (mentioned={mentioned})")
-        # Clear the per-account send flag before processing — reply handler checks this after LLM runs
-        from plugins.discord.tools.discord_tools import get_message_sent_flag
-        get_message_sent_flag(account_name).clear()
+        # Snapshot send count before processing — reply handler compares after LLM runs
+        from plugins.discord.tools.discord_tools import get_send_count
+        payload["_send_count_before"] = get_send_count(account_name)
         _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
 
     _clients[account_name] = client
@@ -277,13 +277,14 @@ def _reply_handler(task, event_data: dict, response_text: str):
     (smart models), we skip to prevent double-posting.
     """
     import re
-    from plugins.discord.tools.discord_tools import get_message_sent_flag
+    from plugins.discord.tools.discord_tools import get_send_count
 
     channel_id = event_data.get("channel_id")
     account = event_data.get("account", "")
 
-    # Smart model already used the tool for this account — don't double-post
-    if account and get_message_sent_flag(account).is_set():
+    # Smart model already used the tool — send count increased since we emitted
+    count_before = event_data.get("_send_count_before", 0)
+    if account and get_send_count(account) > count_before:
         logger.info(f"[DISCORD] Reply handler skipped for '{account}' — tool already sent message")
         return
 
