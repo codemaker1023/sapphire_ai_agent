@@ -111,7 +111,8 @@ class VoiceChatSystem:
             from core.plugin_loader import plugin_loader
             plugin_loader.scan(function_manager=self.llm_chat.function_manager)
         except Exception as e:
-            logger.error(f"Plugin loader failed: {e}", exc_info=True)
+            logger.critical(f"Plugin loader failed — ALL plugins unavailable: {e}", exc_info=True)
+            self._plugin_load_error = str(e)
 
         # Re-apply toolset now that plugin tools are registered
         # (toolset was applied before plugins loaded, so plugin tools were missed)

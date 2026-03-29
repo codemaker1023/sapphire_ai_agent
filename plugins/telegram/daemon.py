@@ -23,57 +23,61 @@ _stop_event = threading.Event()
 _plugin_loader = None
 _api_id: int = 0
 _api_hash: str = ""
+_lifecycle_lock = threading.Lock()
 
 
 def start(plugin_loader, settings):
     """Called by plugin_loader on load. Starts the daemon thread."""
     global _loop, _thread, _plugin_loader, _api_id, _api_hash
 
-    _plugin_loader = plugin_loader
-    api_id = settings.get("api_id", "")
-    api_hash = settings.get("api_hash", "")
-    if not api_id or not api_hash:
-        logger.info("[TELEGRAM] No API credentials configured — daemon idle")
-        return
+    with _lifecycle_lock:
+        _plugin_loader = plugin_loader
+        api_id = settings.get("api_id", "")
+        api_hash = settings.get("api_hash", "")
+        if not api_id or not api_hash:
+            logger.info("[TELEGRAM] No API credentials configured — daemon idle")
+            return
 
-    _api_id = int(api_id)
-    _api_hash = api_hash
+        _api_id = int(api_id)
+        _api_hash = api_hash
 
-    SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    _stop_event.clear()
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        _stop_event.clear()
 
-    _loop = asyncio.new_event_loop()
-    _thread = threading.Thread(target=_run_loop, args=(_plugin_loader, _api_id, _api_hash), daemon=True, name="telegram-daemon")
-    _thread.start()
+        _loop = asyncio.new_event_loop()
+        _thread = threading.Thread(target=_run_loop, args=(_plugin_loader, _api_id, _api_hash), daemon=True, name="telegram-daemon")
+        _thread.start()
 
-    # Register reply handler so daemon responses route back to Telegram
-    plugin_loader.register_reply_handler("telegram", _reply_handler)
+        # Register reply handler so daemon responses route back to Telegram
+        plugin_loader.register_reply_handler("telegram", _reply_handler)
     logger.info("[TELEGRAM] Daemon thread started")
 
 
 def stop():
     """Called by plugin_loader on unload. Stops all clients."""
     global _loop, _thread
-    _stop_event.set()
 
-    if _loop and _loop.is_running():
-        # Schedule disconnect of all clients
-        async def _shutdown():
-            for name, client in list(_clients.items()):
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-            _clients.clear()
-            _loop.stop()
+    with _lifecycle_lock:
+        _stop_event.set()
 
-        asyncio.run_coroutine_threadsafe(_shutdown(), _loop)
+        if _loop and _loop.is_running():
+            # Schedule disconnect of all clients
+            async def _shutdown():
+                for name, client in list(_clients.items()):
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                _clients.clear()
+                _loop.stop()
 
-    if _thread and _thread.is_alive():
-        _thread.join(timeout=5)
+            asyncio.run_coroutine_threadsafe(_shutdown(), _loop)
 
-    _loop = None
-    _thread = None
+        if _thread and _thread.is_alive():
+            _thread.join(timeout=5)
+
+        _loop = None
+        _thread = None
     logger.info("[TELEGRAM] Daemon stopped")
 
 

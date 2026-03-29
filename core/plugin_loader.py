@@ -529,11 +529,15 @@ class PluginLoader:
             self._function_manager.unregister_plugin_tools(name)
         self._unregister_routes(name)
 
-        # Unregister providers
+        # Unregister providers — reset active setting if it pointed to this plugin
         info = self._plugins.get(name, {})
         for system_name, prov_key in info.get("registered_providers", []):
             registry = self._get_provider_registry(system_name)
             if registry:
+                if registry.get_active_key() == prov_key:
+                    from core.settings_manager import settings_manager
+                    settings_manager.set(registry.setting_key, 'none')
+                    logger.info(f"[PLUGINS] Reset {registry.setting_key} to 'none' (was '{prov_key}' from disabled plugin)")
                 registry.unregister_plugin(name)
         # Remove plugin schedule tasks and event sources
         with self._lock:

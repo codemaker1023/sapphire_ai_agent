@@ -20,50 +20,54 @@ _stop_event = threading.Event()
 _plugin_loader = None
 _last_connect_time: float = 0  # prevent rapid reconnects
 _CONNECT_COOLDOWN = 30  # seconds between full reconnect cycles
+_lifecycle_lock = threading.Lock()
 
 
 def start(plugin_loader, settings):
     """Called by plugin_loader on load. Starts the daemon thread."""
     global _loop, _thread, _plugin_loader
 
-    _plugin_loader = plugin_loader
-    _stop_event.clear()
+    with _lifecycle_lock:
+        _plugin_loader = plugin_loader
+        _stop_event.clear()
 
-    _loop = asyncio.new_event_loop()
-    _thread = threading.Thread(target=_run_loop, daemon=True, name="discord-daemon")
-    _thread.start()
+        _loop = asyncio.new_event_loop()
+        _thread = threading.Thread(target=_run_loop, daemon=True, name="discord-daemon")
+        _thread.start()
 
-    plugin_loader.register_reply_handler("discord", _reply_handler)
+        plugin_loader.register_reply_handler("discord", _reply_handler)
     logger.info("[DISCORD] Daemon thread started")
 
 
 def stop():
     """Called by plugin_loader on unload. Stops all clients."""
     global _loop, _thread
-    _stop_event.set()
 
-    if _loop and _loop.is_running():
-        async def _shutdown():
-            for name, client in list(_clients.items()):
-                try:
-                    await client.close()
-                except Exception:
-                    pass
-            _clients.clear()
+    with _lifecycle_lock:
+        _stop_event.set()
 
-        future = asyncio.run_coroutine_threadsafe(_shutdown(), _loop)
-        try:
-            future.result(timeout=5)
-        except Exception:
-            pass
+        if _loop and _loop.is_running():
+            async def _shutdown():
+                for name, client in list(_clients.items()):
+                    try:
+                        await client.close()
+                    except Exception:
+                        pass
+                _clients.clear()
 
-        _loop.call_soon_threadsafe(_loop.stop)
+            future = asyncio.run_coroutine_threadsafe(_shutdown(), _loop)
+            try:
+                future.result(timeout=5)
+            except Exception:
+                pass
 
-    if _thread and _thread.is_alive():
-        _thread.join(timeout=5)
+            _loop.call_soon_threadsafe(_loop.stop)
 
-    _loop = None
-    _thread = None
+        if _thread and _thread.is_alive():
+            _thread.join(timeout=5)
+
+        _loop = None
+        _thread = None
     logger.info("[DISCORD] Daemon stopped")
 
 
