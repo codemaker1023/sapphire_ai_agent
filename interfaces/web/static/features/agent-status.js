@@ -330,5 +330,11 @@ export function initAgentStatus() {
         setTimeout(() => drainAgentReport(), 500);
     });
 
+    // Safety net: periodically retry stuck reports (e.g. user never returns to agent's chat)
+    setInterval(() => {
+        if (!pendingAgentReport) return;
+        drainAgentReport();
+    }, 15000);
+
     poll();
 }

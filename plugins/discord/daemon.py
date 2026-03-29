@@ -229,9 +229,9 @@ async def _connect_single(account_name: str, token: str = None):
         }
 
         logger.info(f"[DISCORD] Message from {payload['username']} in #{payload['channel_name']} (mentioned={mentioned})")
-        # Clear the send flag before processing — reply handler checks this after LLM runs
-        from plugins.discord.tools.discord_tools import _message_sent
-        _message_sent.clear()
+        # Clear the per-account send flag before processing — reply handler checks this after LLM runs
+        from plugins.discord.tools.discord_tools import get_message_sent_flag
+        get_message_sent_flag(account_name).clear()
         _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
 
     _clients[account_name] = client
@@ -277,15 +277,15 @@ def _reply_handler(task, event_data: dict, response_text: str):
     (smart models), we skip to prevent double-posting.
     """
     import re
-    from plugins.discord.tools.discord_tools import _message_sent
-
-    # Smart model already used the tool — don't double-post
-    if _message_sent.is_set():
-        logger.info("[DISCORD] Reply handler skipped — tool already sent message")
-        return
+    from plugins.discord.tools.discord_tools import get_message_sent_flag
 
     channel_id = event_data.get("channel_id")
     account = event_data.get("account", "")
+
+    # Smart model already used the tool for this account — don't double-post
+    if account and get_message_sent_flag(account).is_set():
+        logger.info(f"[DISCORD] Reply handler skipped for '{account}' — tool already sent message")
+        return
 
     if not channel_id or not account:
         logger.warning("[DISCORD] Reply handler missing channel_id or account")

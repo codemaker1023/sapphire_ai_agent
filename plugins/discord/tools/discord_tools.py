@@ -16,11 +16,20 @@ EMOJI = "🎮"
 
 # Set by executor when processing a daemon event — auto-reply target
 _reply_channel_id = ContextVar('discord_reply_channel_id', default=None)
-# Set to True when discord_send_message runs — prevents double-post from auto_reply.
+# Per-account flags: set when discord_send_message runs — prevents double-post from auto_reply.
 # Uses threading.Event (not ContextVar) because the reply handler runs in a different
 # thread context than the tool execution, so ContextVars don't propagate.
+# Keyed by account_name to prevent cross-account flag interference.
 import threading
-_message_sent = threading.Event()
+_message_sent: dict = {}  # {account_name: threading.Event}
+_message_sent_lock = threading.Lock()
+
+def get_message_sent_flag(account_name: str) -> threading.Event:
+    """Get or create the per-account message-sent flag."""
+    with _message_sent_lock:
+        if account_name not in _message_sent:
+            _message_sent[account_name] = threading.Event()
+        return _message_sent[account_name]
 
 TOOLS = [
     {
@@ -240,7 +249,9 @@ def _send_message(client, loop, channel_ref=None, text=""):
 
     future = asyncio.run_coroutine_threadsafe(_send(), loop)
     channel_name = future.result(timeout=10)
-    _message_sent.set()
+    account = _get_account()
+    if account:
+        get_message_sent_flag(account).set()
 
     return f"Message sent to #{channel_name}.", True
 

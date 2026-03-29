@@ -56,7 +56,8 @@ class PluginState:
         tmp.replace(self._path)
 
     def get(self, key: str, default=None):
-        return self._data.get(key, default)
+        with self._lock:
+            return self._data.get(key, default)
 
     def save(self, key: str, value):
         with self._lock:
@@ -518,8 +519,8 @@ class PluginLoader:
             elif system_name == 'llm':
                 from core.chat.llm_providers import provider_registry
                 return provider_registry
-        except ImportError:
-            pass
+        except ImportError as e:
+            logger.error(f"[PLUGINS] Failed to import {system_name} provider registry: {e}")
         return None
 
     def unload_plugin(self, name: str):

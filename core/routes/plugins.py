@@ -513,6 +513,9 @@ async def install_plugin(
         # Block core functions
         if (PROJECT_ROOT / "functions" / f"{name}.py").exists():
             raise HTTPException(status_code=409, detail=f"'{name}' conflicts with a core function")
+        # Block core-ui plugins
+        if (PROJECT_ROOT / "interfaces" / "web" / "static" / "core-ui" / name).exists():
+            raise HTTPException(status_code=409, detail=f"'{name}' conflicts with a core UI plugin")
 
         # ── Size checks on extracted content ──
         total_size = 0
@@ -699,8 +702,17 @@ async def check_plugin_update(plugin_name: str, _=Depends(require_login)):
     remote_version = remote_manifest.get("version", "0.0.0")
     remote_author = remote_manifest.get("author", "unknown")
 
+    def _ver_tuple(v):
+        """Parse version string into comparable tuple (e.g. '1.2.3' → (1, 2, 3))."""
+        try:
+            return tuple(int(x) for x in v.split('.'))
+        except (ValueError, AttributeError):
+            return (0,)
+
+    update = _ver_tuple(remote_version) > _ver_tuple(current_version)
+
     return {
-        "update_available": remote_version != current_version,
+        "update_available": update,
         "current_version": current_version,
         "remote_version": remote_version,
         "remote_author": remote_author,

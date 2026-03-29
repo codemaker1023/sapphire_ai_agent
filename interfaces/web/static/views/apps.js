@@ -6,6 +6,8 @@ let appsData = [];
 let activeApp = null;
 let activeCleanup = null;
 
+function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 async function loadApps() {
     try {
         const data = await fetchWithTimeout('/api/apps');
@@ -36,10 +38,10 @@ function renderGrid(container) {
             </div>
             <div class="apps-grid">
                 ${appsData.map(app => `
-                    <button class="app-tile" data-app="${app.name}">
-                        <span class="app-tile-icon">${app.icon || '📦'}</span>
-                        <span class="app-tile-label">${app.label}</span>
-                        ${app.description ? `<span class="app-tile-desc">${app.description}</span>` : ''}
+                    <button class="app-tile" data-app="${_esc(app.name)}">
+                        <span class="app-tile-icon">${_esc(app.icon || '📦')}</span>
+                        <span class="app-tile-label">${_esc(app.label)}</span>
+                        ${app.description ? `<span class="app-tile-desc">${_esc(app.description)}</span>` : ''}
                     </button>
                 `).join('')}
             </div>
