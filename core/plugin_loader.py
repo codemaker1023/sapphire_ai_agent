@@ -545,6 +545,9 @@ class PluginLoader:
                     logger.info(f"[PLUGINS] Reset {registry.setting_key} to 'none' (was '{prov_key}' from disabled plugin)")
                 registry.unregister_plugin(name)
         # Remove plugin schedule tasks and event sources
+        # Snapshot daemon_mod under lock, then stop OUTSIDE lock to avoid
+        # ABBA deadlock: _lock → _lifecycle_lock vs _lifecycle_lock → _lock
+        daemon_mod = None
         with self._lock:
             if self._scheduler and name in self._plugins:
                 for tid in self._plugins[name].get("schedule_task_ids", []):
@@ -555,21 +558,26 @@ class PluginLoader:
                 self._plugins[name].pop("schedule_task_ids", None)
             self._event_sources.pop(name, None)
             self._reply_handlers.pop(name, None)
-            # Stop daemon thread if running
             if name in self._plugins:
                 daemon_mod = self._plugins[name].get("daemon_module")
-                if daemon_mod and hasattr(daemon_mod, "stop"):
-                    try:
-                        daemon_mod.stop()
-                        logger.info(f"[PLUGINS] Stopped daemon for {name}")
-                    except Exception as e:
-                        logger.warning(f"[PLUGINS] Failed to stop daemon for {name}: {e}")
-                    # Clean sys.modules so file handles are released (needed for Windows rmtree)
-                    pkg = getattr(daemon_mod, "_pkg_name", None)
-                    if pkg:
-                        import sys
-                        sys.modules.pop(pkg, None)
-                    self._plugins[name].pop("daemon_module", None)
+
+        # Stop daemon outside _lock (daemon.stop() acquires _lifecycle_lock)
+        if daemon_mod and hasattr(daemon_mod, "stop"):
+            try:
+                daemon_mod.stop()
+                logger.info(f"[PLUGINS] Stopped daemon for {name}")
+            except Exception as e:
+                logger.warning(f"[PLUGINS] Failed to stop daemon for {name}: {e}")
+            # Clean sys.modules so file handles are released (needed for Windows rmtree)
+            pkg = getattr(daemon_mod, "_pkg_name", None)
+            if pkg:
+                import sys
+                sys.modules.pop(pkg, None)
+
+        # Finalize state under lock
+        with self._lock:
+            if name in self._plugins:
+                self._plugins[name].pop("daemon_module", None)
                 self._plugins[name]["loaded"] = False
         logger.info(f"[PLUGINS] Unloaded: {name}")
 
@@ -692,6 +700,10 @@ class PluginLoader:
         # Delete state
         state_file = PLUGIN_STATE_DIR / f"{name}.json"
         state_file.unlink(missing_ok=True)
+
+        # Evict cached PluginState so reinstall gets fresh instance
+        with self._plugin_state_cache_lock:
+            self._plugin_state_cache.pop(name, None)
 
         logger.info(f"[PLUGINS] Uninstalled: {name}")
 
