@@ -27,7 +27,7 @@ Hey I'm Chris, a solo dev with a burning passion for this project. It's consumed
 ## Features
 
 **Persona**
-- **Personas** - [PERSONAS.md](docs/PERSONAS.md) 11 built-in personalities that bundle prompt, voice, tools, model. Built to add your own.
+- **Personas** - [PERSONAS.md](docs/PERSONAS.md) 11 built-in personalities that bundle prompt, voice, tools, model. Built to add your own. Browse the [Persona Store](https://sapphireblue.dev/personas/).
 - **Voice** - Wake word, STT, TTS, and adaptive VAD. Hands-free with any mic and speaker shows up in web UI.
 - **Prompts** - [PROMPTS.md](docs/PROMPTS.md) Assembled prompts let you swap one section like location or emotions for dynamic feels.
 - **Spice** - [SPICE.md](docs/SPICE.md) Random prompt snippets injected each reply to keep things unpredictable.
@@ -52,14 +52,21 @@ Hey I'm Chris, a solo dev with a burning passion for this project. It's consumed
 - **Home Assistant** - Lights, scenes, thermostats, switches, phone notifications.
 - **SSH** - Remote command execution with safety blacklists.
 - **Bitcoin** - Balance, send, transaction history, multi-wallet.
+- **MCP** - Connect to Model Context Protocol servers and use their tools.
+- **Webcam** - Capture images for vision-capable LLMs.
 - **Image Gen** - SDXL with character replacement for visual consistency.
+
+**Platform**
 - **Daemons & Webhooks** - [DAEMONS-WEBHOOKS.md](docs/DAEMONS-WEBHOOKS.md) Background listeners and HTTP triggers for any external service.
 - **Agents** - [AGENTS.md](docs/AGENTS.md) Spawn background AI workers that report back when done.
+- **Apps** - Plugins can ship full-page UIs that appear in the nav rail.
+- **Themes** - Plugin themes with custom CSS, animations, and per-theme settings.
+- **Avatar** - 3D animated avatar with environment scenes and SSE-driven reactions.
 - **Import/Export** - [IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md) Share personas, prompts, toolsets, and more as JSON files.
 - **Dashboard** - [DASHBOARD.md](docs/DASHBOARD.md) Token metrics, auto-updater, system controls.
-- **Cloud** (optional) - Claude, GPT, Gemini. Only active when you enable them. Local-first by default.
+- **Cloud** (optional) - Claude, GPT, Gemini, Fireworks, Ollama, or any OpenAI/Anthropic-compatible endpoint. Local-first by default.
 - **Privacy** - One toggle blocks all cloud connections. Fully local, nothing leaves your machine.
-- **Plugins** - [PLUGINS.md](docs/PLUGINS.md) Hooks, tools, voice commands, scheduling, web settings — all in one system.
+- **Plugins** - [PLUGINS.md](docs/PLUGINS.md) Hooks, tools, voice commands, providers, daemons, apps, themes — install from GitHub in one click. Browse the [Plugin Store](https://sapphireblue.dev/plugins/).
 - **Desktop/Mobile/Voice** - Run on your local browser, open the same chat to your phone, then finish it on your mic.
 - **65+ Tools** - [TOOLS.md](docs/TOOLS.md) Web search, Wikipedia, notes, and more. Mix and match via [TOOLSETS.md](docs/TOOLSETS.md).
 
@@ -183,10 +190,14 @@ This removes the Python environment. Delete the `sapphire/` folder to remove eve
 |-------|-------------|
 | [Installation](docs/INSTALLATION.md) | Setup guide, systemd service |
 | [Quick Start](docs/QUICK-START.md) | First persona, LLM setup, integrations |
+| [Plugin Author Guide](docs/plugin-author/README.md) | Build plugins with hooks, tools, providers, apps, themes |
 | [API](docs/API.md) | All ~280 REST endpoints |
-| [SOCKS Proxy](docs/SOCKS.md) | Privacy proxy for web tools |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and fixes |
+| [Agents](docs/AGENTS.md) | Background AI workers |
+| [Story Engine](docs/STORY-ENGINE.md) | Interactive fiction and games |
+| [Backups](docs/BACKUPS.md) | Automatic and manual backup system |
+| [Docker](docs/DOCKER.md) | Container deployment with GPU support |
 | [Technical](docs/TECHNICAL.md) | Architecture and internals |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and fixes |
 
 ## Contributions
 
