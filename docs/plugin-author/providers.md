@@ -237,4 +237,3 @@ If a provider plugin is the configured provider (e.g., `TTS_PROVIDER=elevenlabs`
 ## Examples
 
 - `plugins/elevenlabs/` — TTS provider with API key, model selection, voice picker
-- `plugins/sapphire-router/` — Multi-system provider (TTS + STT + Embedding) with shared config
