@@ -148,11 +148,16 @@ class ContinuityScheduler:
     def _save_tasks(self):
         """Save tasks to JSON file (atomic write via temp + rename)."""
         try:
+            import tempfile
             data = {"tasks": list(self._tasks.values())}
-            tmp = self._tasks_path.with_suffix('.tmp')
-            with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            tmp.replace(self._tasks_path)
+            fd, tmp = tempfile.mkstemp(dir=self._tasks_path.parent, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                Path(tmp).replace(self._tasks_path)
+            except Exception:
+                Path(tmp).unlink(missing_ok=True)
+                raise
         except Exception as e:
             logger.error(f"[Continuity] Failed to save tasks: {e}")
     
@@ -173,11 +178,16 @@ class ContinuityScheduler:
     def _save_activity(self):
         """Save activity log to JSON file (atomic write)."""
         try:
+            import tempfile
             data = {"activity": self._activity[-50:]}  # Keep last 50
-            tmp_path = self._activity_path.with_suffix('.tmp')
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            tmp_path.replace(self._activity_path)
+            fd, tmp = tempfile.mkstemp(dir=self._activity_path.parent, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                Path(tmp).replace(self._activity_path)
+            except Exception:
+                Path(tmp).unlink(missing_ok=True)
+                raise
         except Exception as e:
             logger.error(f"[Continuity] Failed to save activity: {e}")
     
