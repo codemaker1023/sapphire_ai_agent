@@ -105,11 +105,15 @@ def _extract_tool_images(result, history=None):
             if isinstance(img, dict) and img.get("data")
         ]
         # Save images to DB and embed markers in text
+        # Images with display_only=True are saved for user gallery but not sent to LLM
+        llm_images = []
         for img in images:
             img_id = _save_tool_image(img, history)
             if img_id:
                 text = f"<<IMG::tool:{img_id}>>\n{text}"
-        return text, images
+            if not img.get("display_only"):
+                llm_images.append(img)
+        return text, llm_images
     return str(result), []
 
 
