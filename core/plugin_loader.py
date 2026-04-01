@@ -194,6 +194,31 @@ class PluginLoader:
             return False
         return True
 
+    @staticmethod
+    def _check_dependencies(manifest: dict) -> list:
+        """Check if pip_dependencies from manifest are installed.
+
+        Returns list of missing package specifiers (empty = all good).
+        """
+        deps = manifest.get("pip_dependencies", [])
+        if not deps:
+            return []
+
+        import importlib.metadata
+        import re
+
+        missing = []
+        for spec in deps:
+            # Extract package name from specifier like "telethon>=1.34"
+            pkg_name = re.split(r'[><=!~\[]', spec)[0].strip()
+            if not pkg_name:
+                continue
+            try:
+                importlib.metadata.version(pkg_name)
+            except importlib.metadata.PackageNotFoundError:
+                missing.append(spec)
+        return missing
+
     def _get_enabled_list(self) -> list:
         """Read enabled plugins from user/webui/plugins.json."""
         for path in (USER_PLUGINS_JSON, STATIC_PLUGINS_JSON):
@@ -251,6 +276,25 @@ class PluginLoader:
         plugin_dir = info["path"]
         band = info["band"]
         base_priority = manifest.get("priority", 50)
+
+        # Pre-flight dependency check — before any code loads
+        missing = self._check_dependencies(manifest)
+        info.pop("missing_deps", None)  # Clear stale dep state on reload
+        if missing:
+            info["missing_deps"] = missing
+            pip_cmd = f"pip install {' '.join(missing)}"
+            logger.warning(f"[PLUGINS] {name}: missing dependencies: {missing} — {pip_cmd}")
+            err_data = {
+                "plugin": name,
+                "error": f"Missing dependencies: {', '.join(missing)}",
+                "hint": pip_cmd,
+                "missing_deps": missing,
+            }
+            self._load_errors.append(err_data)
+            from core.event_bus import publish, Events
+            publish(Events.PLUGIN_LOAD_ERROR, err_data)
+            # Stay enabled but not loaded — user can install deps and reload
+            return True  # Don't block/disable, just skip loading code
 
         # Offset user plugins into 100-199 band
         if band == "user":
@@ -1082,6 +1126,7 @@ class PluginLoader:
             "verify_msg": info.get("verify_msg"),
             "verify_tier": info.get("verify_tier", "unsigned"),
             "verified_author": info.get("verified_author"),
+            "missing_deps": info.get("missing_deps", []),
         }
 
     def get_all_plugin_info(self) -> List[dict]:

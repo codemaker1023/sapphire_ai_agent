@@ -129,6 +129,7 @@ async def list_plugins(request: Request, _=Depends(require_login)):
                     "band": info.get("band"),
                     "has_script": has_script,
                     "sidebar_accordion": manifest.get("capabilities", {}).get("sidebar_accordion"),
+                    "missing_deps": info.get("missing_deps", []),
                 })
     except Exception:
         pass
@@ -255,7 +256,19 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
         except Exception as e:
             logger.warning(f"Live plugin toggle failed for {plugin_name}: {e}")
 
-        return {"status": "success", "plugin": plugin_name, "enabled": new_state, "reload_required": reload_required}
+        # Check for missing deps after toggle-on
+        missing_deps = []
+        if new_state:
+            try:
+                from core.plugin_loader import plugin_loader
+                p_info = plugin_loader.get_plugin_info(plugin_name)
+                if p_info:
+                    missing_deps = p_info.get("missing_deps", [])
+            except Exception:
+                pass
+
+        return {"status": "success", "plugin": plugin_name, "enabled": new_state,
+                "reload_required": reload_required, "missing_deps": missing_deps}
     finally:
         lock.release()
 
@@ -723,6 +736,107 @@ async def check_plugin_update(plugin_name: str, _=Depends(require_login)):
         "remote_version": remote_version,
         "remote_author": remote_author,
         "source_url": source_url,
+    }
+
+
+@router.get("/api/plugins/{plugin_name}/check-deps")
+async def check_plugin_deps(plugin_name: str, _=Depends(require_login)):
+    """Check dependency status for a plugin."""
+    import sys
+    from core.plugin_loader import plugin_loader
+
+    info = plugin_loader.get_plugin_info(plugin_name)
+    if not info:
+        raise HTTPException(status_code=404, detail=f"Unknown plugin: {plugin_name}")
+
+    manifest = info.get("manifest", {})
+    deps = manifest.get("pip_dependencies", [])
+    missing = plugin_loader._check_dependencies(manifest)
+
+    # Detect environment type
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV")
+    in_venv = sys.prefix != sys.base_prefix
+    if conda_env:
+        env_type, env_name = "conda", conda_env
+    elif in_venv:
+        env_type, env_name = "venv", os.path.basename(sys.prefix)
+    else:
+        env_type, env_name = "system", "system"
+
+    can_auto = env_type in ("conda", "venv")
+    command = f"pip install {' '.join(missing)}" if missing else None
+
+    return {
+        "deps": deps, "missing": missing, "installed": [d for d in deps if d not in missing],
+        "env_type": env_type, "env_name": env_name,
+        "can_auto_install": can_auto, "command": command,
+    }
+
+
+@router.post("/api/plugins/{plugin_name}/install-deps")
+async def install_plugin_deps(plugin_name: str, _=Depends(require_login)):
+    """Install missing pip dependencies for a plugin.
+
+    Only runs inside conda or venv — refuses on bare system Python.
+    """
+    import subprocess
+    import sys
+    from core.plugin_loader import plugin_loader
+
+    info = plugin_loader.get_plugin_info(plugin_name)
+    if not info:
+        raise HTTPException(status_code=404, detail=f"Unknown plugin: {plugin_name}")
+
+    manifest = info.get("manifest", {})
+    missing = plugin_loader._check_dependencies(manifest)
+    if not missing:
+        return {"status": "ok", "message": "All dependencies already installed", "installed": []}
+
+    # Environment safety gate
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV")
+    in_venv = sys.prefix != sys.base_prefix
+    if not conda_env and not in_venv:
+        raise HTTPException(status_code=400, detail=(
+            "Sapphire is running in system Python — auto-install disabled for safety. "
+            f"Run manually: pip install {' '.join(missing)}"
+        ))
+
+    env_label = f"conda:{conda_env}" if conda_env else f"venv:{os.path.basename(sys.prefix)}"
+    logger.info(f"[PLUGINS] Installing deps for {plugin_name} in {env_label}: {missing}")
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *missing],
+            capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="pip install timed out (120s)")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"pip install failed: {e}")
+
+    if result.returncode != 0:
+        return JSONResponse(status_code=500, content={
+            "status": "error", "message": "pip install failed",
+            "output": result.stderr or result.stdout, "command": f"pip install {' '.join(missing)}",
+        })
+
+    # Verify deps are now importable
+    still_missing = plugin_loader._check_dependencies(manifest)
+
+    # Auto-reload the plugin if all deps are now satisfied
+    if not still_missing:
+        try:
+            plugin_loader.reload_plugin(plugin_name)
+            logger.info(f"[PLUGINS] Auto-reloaded {plugin_name} after dep install")
+        except Exception as e:
+            logger.warning(f"[PLUGINS] Dep install OK but reload failed for {plugin_name}: {e}")
+
+    return {
+        "status": "ok" if not still_missing else "partial",
+        "installed": [d for d in missing if d not in still_missing],
+        "still_missing": still_missing,
+        "output": result.stdout,
+        "env": env_label,
     }
 
 

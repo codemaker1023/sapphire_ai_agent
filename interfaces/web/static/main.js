@@ -128,7 +128,8 @@ async function init() {
             if (initData?.load_errors?.length) {
                 for (const err of initData.load_errors) {
                     const hint = err.hint ? ` — ${err.hint}` : '';
-                    ui.showToast(`Plugin '${err.plugin}': ${err.error}${hint}`, 'error', 10000);
+                    const isDeps = err.missing_deps?.length > 0;
+                    ui.showToast(`Plugin '${err.plugin}': ${err.error}${hint}`, isDeps ? 'warning' : 'error', isDeps ? 0 : 10000);
                 }
             }
             // Discover plugin apps — promote nav apps, show Apps grid if others exist
@@ -450,10 +451,15 @@ function initEventBus() {
     });
     document.addEventListener('sapphire:plugin_toggled', () => reloadPluginScripts());
 
-    // Plugin load errors — show missing deps as toasts
+    // Plugin load errors — sticky toast for missing deps, timed for other errors
     eventBus.on(eventBus.Events.PLUGIN_LOAD_ERROR, (data) => {
         const hint = data?.hint ? ` — ${data.hint}` : '';
-        ui.showToast(`Plugin '${data?.plugin}': ${data?.error}${hint}`, 'error', 10000);
+        const isDeps = data?.missing_deps?.length > 0;
+        ui.showToast(
+            `Plugin '${data?.plugin}': ${data?.error}${hint}`,
+            isDeps ? 'warning' : 'error',
+            isDeps ? 0 : 10000
+        );
     });
 
     // Server restart detection — full state resync

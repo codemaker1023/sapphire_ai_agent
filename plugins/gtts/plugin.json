@@ -6,6 +6,7 @@
   "icon": "\ud83d\udde3\ufe0f",
   "priority": 50,
   "default_enabled": false,
+  "pip_dependencies": ["gTTS"],
   "settingsUI": null,
   "capabilities": {
     "providers": {

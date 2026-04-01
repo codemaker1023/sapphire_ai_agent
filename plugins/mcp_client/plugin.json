@@ -6,6 +6,7 @@
   "icon": "\ud83d\udd0c",
   "priority": 50,
   "default_enabled": false,
+  "pip_dependencies": ["mcp"],
   "settingsUI": "plugin",
   "capabilities": {
     "tools": ["tools/mcp_tools.py"],

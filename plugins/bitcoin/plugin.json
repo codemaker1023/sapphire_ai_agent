@@ -6,6 +6,7 @@
   "icon": "₿",
   "url": "https://sapphireblue.dev",
   "priority": 50,
+  "pip_dependencies": ["bit"],
   "capabilities": {
     "tools": ["tools/bitcoin_tool.py"]
   }

@@ -19,6 +19,7 @@ Every plugin needs a `plugin.json` in its root folder.
 | `default_enabled` | bool | No | false | Auto-enable on fresh install |
 | `managed_hide` | bool | No | false | Hide plugin entirely in managed/resale mode |
 | `settingsUI` | string\|null | No | `"auto"` | Controls settings panel: `"auto"` (from manifest schema), `"plugin"` (custom JS), `"core"` (hardcoded), or `null` (none) |
+| `pip_dependencies` | string[] | No | `[]` | Python packages required (pip specifiers, e.g. `["telethon>=1.34", "requests"]`). Checked before loading; missing deps shown in UI with install option |
 | `capabilities` | object | No | — | What the plugin provides (see below) |
 
 ## Capabilities

@@ -50,6 +50,12 @@ export default {
                         <button class="btn-sm" id="dash-clear-cache" style="width:100%">Clear JS Cache</button>
                     </div>
                 </div>
+                <div class="dash-card dash-card-wide dash-deps-card" id="dash-deps-card" style="display:none">
+                    <h4>Missing Dependencies</h4>
+                    <div id="dash-deps-list" style="font-size:var(--font-sm)">
+                        <span class="text-muted">Checking...</span>
+                    </div>
+                </div>
                 <div class="dash-card dash-card-wide">
                     <div class="dash-card-header">
                         <h4>Token Metrics <span class="text-muted" style="font-size:var(--font-xs);font-weight:normal">(30 days)</span></h4>
@@ -155,6 +161,7 @@ export default {
 
         checkForUpdate(el);
         loadMetrics(el);
+        loadMissingDeps(el, ctx);
     }
 };
 
@@ -280,6 +287,51 @@ async function loadQuickStats(el) {
             </div>
         `;
     } catch { box.innerHTML = '<span class="text-muted" style="font-size:var(--font-sm)">Stats unavailable</span>'; }
+}
+
+// =============================================================================
+// MISSING DEPENDENCIES
+// =============================================================================
+
+async function loadMissingDeps(el, ctx) {
+    const card = el.querySelector('#dash-deps-card');
+    const list = el.querySelector('#dash-deps-list');
+    if (!card || !list) return;
+
+    try {
+        const res = await fetch('/api/plugins');
+        if (!res.ok) return;
+        const data = await res.json();
+        const withDeps = (data.plugins || []).filter(p => p.missing_deps?.length);
+
+        if (!withDeps.length) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = '';
+        card.style.borderLeft = '3px solid #e0a030';
+        list.innerHTML = withDeps.map(p => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+                <span>${p.icon || '\uD83D\uDD0C'}</span>
+                <span style="flex:1"><strong>${_esc(p.title || p.name)}</strong> needs: ${_esc(p.missing_deps.join(', '))}</span>
+                <button class="btn btn-sm dash-deps-fix" data-plugin="${_esc(p.name)}"
+                    style="font-size:0.75em;padding:2px 10px;background:rgba(255,165,0,0.2);border:1px solid rgba(255,165,0,0.4);color:#e0a030;cursor:pointer;border-radius:var(--radius-sm)">
+                    Fix
+                </button>
+            </div>
+        `).join('');
+
+        // Fix buttons → navigate to plugins tab
+        list.querySelectorAll('.dash-deps-fix').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const settingsView = el.closest('.settings-view') || el.closest('[data-view="settings"]');
+                if (settingsView) {
+                    settingsView.dispatchEvent(new CustomEvent('settings-navigate', { detail: { tab: 'plugins' }, bubbles: true }));
+                }
+            });
+        });
+    } catch { card.style.display = 'none'; }
 }
 
 function _esc(s) { return String(s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
