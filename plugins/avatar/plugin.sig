@@ -2,9 +2,9 @@
   "plugin": "avatar",
   "version": "1.1.0",
   "files": {
-    "bone_mapper.py": "sha256:d9e351e24ae11dd1eb8d3b1231ecc719bb17e515a48aceeaf5f3edebda859d95",
+    "bone_mapper.py": "sha256:57aa0dc284effd5cc50d771550c8977aa81532ef1d5d0745ac9c7809f211784d",
     "glb_merger.py": "sha256:6baccd4aced1a2fb5d97bc0b679ea58b8f0bc35527abadbc1dd9b3ace99d13ca",
-    "glb_parser.py": "sha256:0e01670329f18da7db241703541c282af846c3927fa77c22bb4b72390f323791",
+    "glb_parser.py": "sha256:86faa6b6aa71e317eef840981ec7a923e885826b980738e5a127972d2a9ec4b9",
     "hooks/prompt_inject.py": "sha256:888234461ac360d5362788a87f3f3c0e0f48ea5b4eda5efca1aa25189d34ab79",
     "plugin.json": "sha256:21292cf8a11a3cf222d5f4af72f9e24e1a52b3777502b5d958fcb4587e96a69e",
     "routes/api.py": "sha256:dec9490cfd889d5ae75f56ba9557fb011b01c7afbcb790420b5bbe6f3f480598",
@@ -22,5 +22,5 @@
     "web/sidebar.html": "sha256:c0d25cc097f997c3413abd941e6bbbde238cb6c65e35a0d19885d75b40fc5e25",
     "web/sidebar.js": "sha256:92e176d03aa5e9ab42f9895f41766547a0c8a3ad0c1eba98106d4839c5b1ac5e"
   },
-  "signature": "/NDpAvDuo0Y1tdZ7BfKrLa/OPtMdcnbXtUZGA9KNPRFOLjnCOkTJ3jZaJCLLbh9trN4HrxPAse6nI2DyW08yBQ=="
+  "signature": "FalTDoBe6dEOG4JnSCdyDljONYZlUdvPcQZg5W44NTLWeS8g14zshay3eQNg9TuUrsxQgP3Pg1PEmzXlF3RiCA=="
 }

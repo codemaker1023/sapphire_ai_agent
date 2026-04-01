@@ -78,16 +78,16 @@ def get_model_info(glb_path):
 # Common animation name patterns for auto-mapping
 AUTO_MAP = {
     'idle':        ['idle', 'stand', 'standing', 'rest', 'default', 'breathe', 'breathing'],
-    'thinking':    ['thinking', 'think', 'ponder', 'concentrate', 'focus'],
-    'typing':      ['typing', 'type', 'keyboard', 'defaultanim', 'compose', 'writing'],
-    'listening':   ['listening', 'listen', 'hear', 'attentive', 'look', 'lookaround'],
+    'thinking':    ['thinking', 'think', 'ponder', 'concentrate', 'focus', 'plotting'],
+    'typing':      ['typing', 'type', 'keyboard', 'defaultanim', 'compose', 'writing', 'texting'],
+    'listening':   ['listening', 'listen', 'hear', 'attentive', 'look', 'lookaround', 'listening_nod'],
     'speaking':    ['speaking', 'speak', 'talk', 'talking', 'say', 'attention'],
-    'toolcall':    ['action', 'use', 'grab', 'reach', 'attention2', 'interact'],
-    'happy':       ['happy', 'joy', 'celebrate', 'cheer', 'smile', 'excited', 'victory'],
-    'wakeword':    ['alert', 'surprise', 'startle', 'notice', 'attention'],
-    'wave':        ['wave', 'greet', 'greeting', 'hello', 'hi', 'bye', 'farewell'],
-    'user_typing': ['curious', 'notice', 'perk', 'attentive'],
-    'reading':     ['read', 'reading', 'look_down', 'study'],
+    'toolcall':    ['action', 'use', 'grab', 'reach', 'attention2', 'interact', 'typing'],
+    'happy':       ['happy', 'joy', 'celebrate', 'cheer', 'smile', 'excited', 'victory', 'clapping', 'laughing'],
+    'wakeword':    ['alert', 'surprise', 'startle', 'notice', 'greeting', 'wave'],
+    'wave':        ['wave', 'greet', 'greeting', 'hello', 'hi', 'bye', 'farewell', 'blow_kiss'],
+    'user_typing': ['curious', 'notice', 'perk', 'attentive', 'idle_curious', 'lookaround'],
+    'reading':     ['read', 'reading', 'look_down', 'study', 'typing_phone'],
 }
 
 

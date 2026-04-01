@@ -1,8 +1,8 @@
-"""Bone name mapper — converts characters3d.com animations to Sapphire's rig.
+"""Bone name mapper — converts characters3d.com animations to Sapphire's Mixamo rig.
 
 Both rigs are standard humanoid with the same hierarchy, just different naming.
 Characters3d: 52 bones (L_Upper_Arm, R_Hand, Hips, etc.)
-Sapphire: 127 bones (upper_arm.L, hand.R, hips, etc. + hair/jacket/face/IK)
+Sapphire (Mixamo): 100 bones (LeftArm, RightHand, Hips, etc. + hair/coat/breast)
 
 Usage:
     from plugins.avatar.bone_mapper import remap_animation
@@ -44,65 +44,65 @@ def quat_normalize(q):
         return (0, 0, 0, 1)
     return (x/length, y/length, z/length, w/length)
 
-# characters3d bone name → sapphire bone name
+# characters3d bone name → Mixamo bone name (Sapphire's rig)
 BONE_MAP = {
-    'RootNode':              'root',
-    'Hips':                  'hips',
-    'Spine':                 'spine',
-    'Chest':                 'chest',
-    'Upper_Chest':           'chest',       # sapphire has no upper_chest, merge into chest
-    'Neck':                  'neck',
-    'Head':                  'head',
+    'RootNode':              'Hips',        # root maps to Hips (Mixamo has no separate root)
+    'Hips':                  'Hips',
+    'Spine':                 'Spine',
+    'Chest':                 'Spine1',
+    'Upper_Chest':           'Spine2',
+    'Neck':                  'Neck',
+    'Head':                  'Head',
     # Left arm
-    'L_Shoulder':            'shoulder.L',
-    'L_Upper_Arm':           'upper_arm.L',
-    'L_Lower_Arm':           'lower_arm.L',
-    'L_Hand':                'hand.L',
-    'L_Thumb_Proximal':      'thumb_proximal.L',
-    'L_Thumb_Intermediate':  'thumb_intermediate.L',
-    'L_Thumb_Distal':        'thumb_distal.L',
-    'L_Index_Proximal':      'index_proximal.L',
-    'L_Index_Intermediate':  'index_intermediate.L',
-    'L_Index_Distal':        'index_distal.L',
-    'L_Middle_Proximal':     'middle_proximal.L',
-    'L_Middle_Intermediate': 'middle_intermediate.L',
-    'L_Middle_Distal':       'middle_distal.L',
-    'L_Ring_Proximal':       'ring_proximal.L',
-    'L_Ring_Intermediate':   'ring_intermediate.L',
-    'L_Ring_Distal':         'ring_distal.L',
-    'L_Little_Proximal':     'little_proximal.L',
-    'L_Little_Intermediate': 'little_intermediate.L',
-    'L_Little_Distal':       'little_distal.L',
+    'L_Shoulder':            'LeftShoulder',
+    'L_Upper_Arm':           'LeftArm',
+    'L_Lower_Arm':           'LeftForeArm',
+    'L_Hand':                'LeftHand',
+    'L_Thumb_Proximal':      'LeftHandThumb1',
+    'L_Thumb_Intermediate':  'LeftHandThumb2',
+    'L_Thumb_Distal':        'LeftHandThumb3',
+    'L_Index_Proximal':      'LeftHandIndex1',
+    'L_Index_Intermediate':  'LeftHandIndex2',
+    'L_Index_Distal':        'LeftHandIndex3',
+    'L_Middle_Proximal':     'LeftHandMiddle1',
+    'L_Middle_Intermediate': 'LeftHandMiddle2',
+    'L_Middle_Distal':       'LeftHandMiddle3',
+    'L_Ring_Proximal':       'LeftHandRing1',
+    'L_Ring_Intermediate':   'LeftHandRing2',
+    'L_Ring_Distal':         'LeftHandRing3',
+    'L_Little_Proximal':     'LeftHandPinky1',
+    'L_Little_Intermediate': 'LeftHandPinky2',
+    'L_Little_Distal':       'LeftHandPinky3',
     # Right arm
-    'R_Shoulder':            'shoulder.R',
-    'R_Upper_Arm':           'upper_arm.R',
-    'R_Lower_Arm':           'lower_arm.R',
-    'R_Hand':                'hand.R',
-    'R_Thumb_Proximal':      'thumb_proximal.R',
-    'R_Thumb_Intermediate':  'thumb_intermediate.R',
-    'R_Thumb_Distal':        'thumb_distal.R',
-    'R_Index_Proximal':      'index_proximal.R',
-    'R_Index_Intermediate':  'index_intermediate.R',
-    'R_Index_Distal':        'index_distal.R',
-    'R_Middle_Proximal':     'middle_proximal.R',
-    'R_Middle_Intermediate': 'middle_intermediate.R',
-    'R_Middle_Distal':       'middle_distal.R',
-    'R_Ring_Proximal':       'ring_proximal.R',
-    'R_Ring_Intermediate':   'ring_intermediate.R',
-    'R_Ring_Distal':         'ring_distal.R',
-    'R_Little_Proximal':     'little_proximal.R',
-    'R_Little_Intermediate': 'little_intermediate.R',
-    'R_Little_Distal':       'little_distal.R',
+    'R_Shoulder':            'RightShoulder',
+    'R_Upper_Arm':           'RightArm',
+    'R_Lower_Arm':           'RightForeArm',
+    'R_Hand':                'RightHand',
+    'R_Thumb_Proximal':      'RightHandThumb1',
+    'R_Thumb_Intermediate':  'RightHandThumb2',
+    'R_Thumb_Distal':        'RightHandThumb3',
+    'R_Index_Proximal':      'RightHandIndex1',
+    'R_Index_Intermediate':  'RightHandIndex2',
+    'R_Index_Distal':        'RightHandIndex3',
+    'R_Middle_Proximal':     'RightHandMiddle1',
+    'R_Middle_Intermediate': 'RightHandMiddle2',
+    'R_Middle_Distal':       'RightHandMiddle3',
+    'R_Ring_Proximal':       'RightHandRing1',
+    'R_Ring_Intermediate':   'RightHandRing2',
+    'R_Ring_Distal':         'RightHandRing3',
+    'R_Little_Proximal':     'RightHandPinky1',
+    'R_Little_Intermediate': 'RightHandPinky2',
+    'R_Little_Distal':       'RightHandPinky3',
     # Left leg
-    'L_Upper_Leg':           'upper_leg.L',
-    'L_Lower_Leg':           'lower_leg.L',
-    'L_Foot':                'foot.L',
-    'L_Toes':                'toes.L',
+    'L_Upper_Leg':           'LeftUpLeg',
+    'L_Lower_Leg':           'LeftLeg',
+    'L_Foot':                'LeftFoot',
+    'L_Toes':                'LeftToeBase',
     # Right leg
-    'R_Upper_Leg':           'upper_leg.R',
-    'R_Lower_Leg':           'lower_leg.R',
-    'R_Foot':                'foot.R',
-    'R_Toes':                'toes.R',
+    'R_Upper_Leg':           'RightUpLeg',
+    'R_Lower_Leg':           'RightLeg',
+    'R_Foot':                'RightFoot',
+    'R_Toes':                'RightToeBase',
 }
 
 
@@ -295,9 +295,11 @@ def remap_animation(anim_glb_path, base_glb_path, output_path, skip_tpose=True, 
             })
 
         # ═══ REST POSE CORRECTION ═══
-        # For each rotation channel, transform keyframes to account for
-        # different rest poses between source and target rigs.
-        # corrected = dst_rest * inverse(src_rest) * keyframe
+        # Convert keyframes from source rest space to target rest space.
+        # Each keyframe is a local rotation relative to the bone's rest pose.
+        # To retarget: strip the source rest, apply the destination rest.
+        # corrected = inverse(dst_rest) * src_rest * keyframe * inverse(src_rest) * dst_rest
+        # Simplified with pre/post multipliers applied per keyframe.
         for ch in new_channels:
             if ch['target']['path'] != 'rotation':
                 continue
@@ -318,12 +320,14 @@ def remap_animation(anim_glb_path, base_glb_path, output_path, skip_tpose=True, 
             src_rot = src_rest.get(old_node, (0, 0, 0, 1))
             dst_rot = dst_rest.get(new_node, (0, 0, 0, 1))
 
-            # Correction quaternion: dst_rest * inverse(src_rest)
-            correction = quat_normalize(quat_multiply(dst_rot, quat_inverse(src_rot)))
+            # Pre-multiplier: inverse(dst_rest) * src_rest
+            pre = quat_normalize(quat_multiply(quat_inverse(dst_rot), src_rot))
+            # Post-multiplier: inverse(src_rest) * dst_rest
+            post = quat_normalize(quat_multiply(quat_inverse(src_rot), dst_rot))
 
-            # Skip if correction is near identity
-            cx, cy, cz, cw = correction
-            if abs(cw) > 0.9999 and (cx*cx + cy*cy + cz*cz) < 0.0001:
+            # Skip if both are near identity (same rest pose)
+            px, py, pz, pw = pre
+            if abs(pw) > 0.9999 and (px*px + py*py + pz*pz) < 0.0001:
                 continue
 
             # Find the output accessor for this channel's sampler
@@ -348,7 +352,9 @@ def remap_animation(anim_glb_path, base_glb_path, output_path, skip_tpose=True, 
             for i in range(count):
                 pos = offset + i * stride
                 x, y, z, w = struct.unpack_from('<ffff', result_bin, pos)
-                corrected = quat_normalize(quat_multiply(correction, (x, y, z, w)))
+                # corrected = pre * keyframe * post
+                temp = quat_multiply(pre, (x, y, z, w))
+                corrected = quat_normalize(quat_multiply(temp, post))
                 struct.pack_into('<ffff', result_bin, pos, *corrected)
 
             logger.debug(f"[BoneMapper] Corrected rotation for bone {new_node} ({count} keyframes)")
