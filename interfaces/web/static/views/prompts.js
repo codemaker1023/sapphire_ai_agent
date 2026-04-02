@@ -133,7 +133,10 @@ function renderEditor() {
     return `
         <div class="pr-header">
             <div class="pr-header-left">
-                <h2>${p.privacy_required ? '\u{1F512} ' : ''}${selected}</h2>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <h2 id="pr-prompt-name" style="margin:0">${p.privacy_required ? '\u{1F512} ' : ''}${selected}</h2>
+                    <button class="btn-icon" id="pr-rename-prompt" title="Rename prompt" style="font-size:14px;opacity:0.5">\u270F</button>
+                </div>
                 <span class="view-subtitle">${isMonolith ? 'Monolith' : 'Assembled'}${p.char_count ? ' \u00B7 ' + formatCount(p.char_count) + ' chars' : ''}</span>
             </div>
             <div class="pr-header-actions">
@@ -307,6 +310,54 @@ function bindEvents() {
     layout.querySelector('#pr-activate')?.addEventListener('click', activateCurrentPrompt);
     layout.querySelector('#pr-dup')?.addEventListener('click', duplicatePrompt);
     layout.querySelector('#pr-delete')?.addEventListener('click', deleteCurrentPrompt);
+
+    // Rename prompt
+    layout.querySelector('#pr-rename-prompt')?.addEventListener('click', () => {
+        if (!selected || !selectedData) return;
+        const h2 = layout.querySelector('#pr-prompt-name');
+        const pencil = layout.querySelector('#pr-rename-prompt');
+        if (!h2 || !pencil) return;
+
+        h2.hidden = true;
+        pencil.hidden = true;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = selected;
+        input.spellcheck = false;
+        input.style.cssText = 'font-size:1.3em;font-weight:600;background:var(--input-bg);border:1px solid var(--accent);border-radius:var(--radius-sm);color:var(--text);padding:2px 8px;width:200px;';
+        h2.parentNode.insertBefore(input, h2);
+        input.focus();
+        input.select();
+
+        let cancelled = false;
+        input.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+            if (ev.key === 'Escape') { cancelled = true; input.blur(); }
+        });
+
+        input.addEventListener('blur', async () => {
+            const newName = input.value.trim();
+            input.remove();
+            h2.hidden = false;
+            pencil.hidden = false;
+
+            if (cancelled || !newName || newName === selected) return;
+
+            try {
+                // Save under new name, delete old
+                await savePrompt(newName, selectedData);
+                await deletePrompt(selected);
+                selected = newName;
+                await loadAll();
+                render();
+                ui.showToast(`Renamed to "${newName}"`, 'success');
+            } catch (e) {
+                ui.showToast(`Rename failed: ${e.message}`, 'error');
+            }
+        }, { once: true });
+    });
+
     layout.querySelector('#pr-export')?.addEventListener('click', () => {
         if (!selected || !selectedData) return;
         showExportDialog({
