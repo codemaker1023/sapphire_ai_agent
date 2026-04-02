@@ -503,13 +503,17 @@ async def upload_knowledge_file(tab_id: int, file: UploadFile = File(...), _=Dep
         raise HTTPException(status_code=400, detail="File is empty")
 
     filename = file.filename or 'upload.txt'
+
+    # Auto-replace: remove existing entries from same filename in this tab
+    replaced = knowledge.delete_entries_by_filename(tab_id, filename)
+
     chunks = knowledge._chunk_text(text)
     entry_ids = []
     for i, chunk in enumerate(chunks):
         eid = knowledge.add_entry(tab_id, chunk, chunk_index=i, source_filename=filename)
         entry_ids.append(eid)
 
-    return {"filename": filename, "chunks": len(chunks), "entry_ids": entry_ids}
+    return {"filename": filename, "chunks": len(chunks), "entry_ids": entry_ids, "replaced": replaced}
 
 
 @router.delete("/api/knowledge/tabs/{tab_id}/file/{filename}")

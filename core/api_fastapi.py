@@ -298,7 +298,12 @@ async def favicon():
 
 def _no_cache_html(template: str, context: dict):
     """TemplateResponse with aggressive no-cache headers (bypass middleware issues)."""
-    resp = templates.TemplateResponse(name=template, context=context)
+    # Starlette 0.30+ requires request as first positional arg
+    request = context.get("request")
+    try:
+        resp = templates.TemplateResponse(request, template, context=context)
+    except TypeError:
+        resp = templates.TemplateResponse(name=template, context=context)
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
