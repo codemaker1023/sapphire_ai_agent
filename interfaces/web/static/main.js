@@ -462,6 +462,11 @@ function initEventBus() {
         );
     });
 
+    // Continuity task errors — toast so user knows a scheduled task failed
+    eventBus.on(eventBus.Events.CONTINUITY_TASK_ERROR, (data) => {
+        ui.showToast(`Task "${data?.task || 'Unknown'}": ${data?.error || 'failed'}`, 'error', 10000);
+    });
+
     // Server restart detection — full state resync
     eventBus.on(eventBus.Events.SERVER_RESTARTED, async () => {
         console.log('[Main] Server restarted — full resync');
