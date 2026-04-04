@@ -35,14 +35,6 @@ const PROVIDER_INFO = {
     difficulty: 'Easy',
     requirements: 'API key from OpenAI'
   },
-  grok: {
-    icon: '🚀',
-    name: 'Grok',
-    tagline: 'By xAI',
-    description: 'Elon\'s AI. Fast reasoning, uncensored, generous free tier.',
-    difficulty: 'Easy',
-    requirements: 'API key from x.ai'
-  },
   gemini: {
     icon: '💎',
     name: 'Gemini',
@@ -51,30 +43,6 @@ const PROVIDER_INFO = {
     difficulty: 'Easy',
     requirements: 'API key from Google AI Studio'
   },
-  fireworks: {
-    icon: '🔥',
-    name: 'Fireworks',
-    tagline: 'Fast Cloud AI',
-    description: 'Access to many open-source models with fast inference.',
-    difficulty: 'Medium',
-    requirements: 'API key from Fireworks.ai'
-  },
-  featherless: {
-    icon: '🪶',
-    name: 'Featherless',
-    tagline: 'Open Source Models',
-    description: 'Hundreds of open-source models. Great prices, no GPU needed.',
-    difficulty: 'Easy',
-    requirements: 'API key from Featherless.ai'
-  },
-  other: {
-    icon: '⚙️',
-    name: 'Other',
-    tagline: 'OpenAI Compatible',
-    description: 'Connect to any OpenAI-compatible API endpoint.',
-    difficulty: 'Advanced',
-    requirements: 'Base URL, API key, model name'
-  }
 };
 
 export default {
@@ -117,11 +85,11 @@ export default {
   },
 
   renderProviderCards(providers, enabledProviders, managed) {
-    let order = ['lmstudio', 'claude', 'grok', 'gemini', 'openai', 'fireworks', 'featherless', 'other'];
+    let order = ['lmstudio', 'claude', 'openai', 'gemini'];
     // Hide LM Studio in managed/Docker mode — no local server available
     if (managed) order = order.filter(k => k !== 'lmstudio');
-    
-    return order.map(key => {
+
+    const cards = order.map(key => {
       const config = providers[key] || {};
       const info = PROVIDER_INFO[key] || {};
       const meta = providerMetadata[key] || {};
@@ -144,6 +112,12 @@ export default {
         </div>
       `;
     }).join('');
+
+    return cards + `
+      <div style="text-align:center;padding:12px 0;color:var(--text-muted);font-size:0.85em">
+        Need Grok, Fireworks, or other providers? Add them in <strong>Settings &gt; LLM</strong> after setup.
+      </div>
+    `;
   },
 
   renderProviderConfig(key, config, meta, info) {
@@ -154,10 +128,7 @@ export default {
       const defaultUrls = {
         lmstudio: 'http://127.0.0.1:1234/v1',
         openai: 'https://api.openai.com/v1',
-        grok: 'https://api.x.ai/v1',
         gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-        fireworks: 'https://api.fireworks.ai/inference/v1',
-        featherless: 'https://api.featherless.ai/v1',
       };
       const defaultUrl = defaultUrls[key] || '';
       fields.push(`
@@ -323,14 +294,16 @@ export default {
   },
 
   validate(settings) {
-    // Check if at least one provider is enabled
-    const providers = settings.LLM_PROVIDERS || {};
-    const hasEnabled = Object.values(providers).some(p => p.enabled);
-    
+    // Check if at least one provider is enabled (core OR custom)
+    const core = settings.LLM_PROVIDERS || {};
+    const custom = settings.LLM_CUSTOM_PROVIDERS || {};
+    const hasEnabled = Object.values(core).some(p => p.enabled)
+                    || Object.values(custom).some(p => p.enabled);
+
     if (!hasEnabled) {
       return {
-        valid: false,
-        message: 'Please enable at least one AI provider to use Sapphire.'
+        valid: true,
+        message: 'No AI provider enabled — you can set one up later in Settings > LLM.'
       };
     }
 

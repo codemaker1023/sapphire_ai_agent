@@ -74,6 +74,27 @@ TOOLS = [
                 "required": ["chat_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "telegram_send_voice",
+            "description": "Send a voice note to a Telegram chat. Your message is spoken aloud using TTS and sent as a playable voice bubble. Great for personal messages, reminders, and when voice feels more natural than text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chat_id": {
+                        "type": ["string", "integer"],
+                        "description": "Telegram chat ID (number) or @username"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "What to say in the voice note"
+                    }
+                },
+                "required": ["chat_id", "text"]
+            }
+        }
     }
 ]
 
@@ -133,6 +154,8 @@ def execute(function_name, arguments, config):
             result = telegram_get_chats(arguments, config)
         elif function_name == "telegram_read_messages":
             result = telegram_read_messages(arguments, config)
+        elif function_name == "telegram_send_voice":
+            result = telegram_send_voice(arguments, config)
         else:
             return f"Unknown function: {function_name}", False
         # Inner functions return error strings on failure
@@ -168,6 +191,40 @@ def telegram_send(args, config):
     except Exception as e:
         logger.error(f"[TELEGRAM] Send failed: {e}")
         return f"Failed to send message: {e}"
+
+
+def telegram_send_voice(args, config):
+    ready = _check_ready()
+    if isinstance(ready, str):
+        return ready
+    client, loop = ready
+
+    chat_id = args.get("chat_id")
+    text = args.get("text", "")
+    if not chat_id or not text:
+        return "Missing required fields: chat_id, text"
+
+    try:
+        try:
+            chat_id = int(chat_id)
+        except (ValueError, TypeError):
+            pass
+
+        # Generate TTS audio
+        from plugins.telegram.daemon import _generate_voice, send_voice_note
+        audio_bytes = _generate_voice(text)
+        if not audio_bytes:
+            return "Failed to generate voice — TTS may not be available"
+
+        future = asyncio.run_coroutine_threadsafe(
+            send_voice_note(_get_account(), chat_id, audio_bytes),
+            loop
+        )
+        future.result(timeout=30)
+        return f"Voice note sent to {chat_id}"
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Voice send failed: {e}")
+        return f"Failed to send voice note: {e}"
 
 
 def telegram_get_chats(args, config):

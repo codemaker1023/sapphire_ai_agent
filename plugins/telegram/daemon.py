@@ -239,6 +239,19 @@ async def send_message(account_name: str, chat_id: int, text: str, parse_mode: s
     await client.send_message(chat_id, text, parse_mode=parse_mode)
 
 
+async def send_voice_note(account_name: str, chat_id: int, audio_bytes: bytes):
+    """Send a voice note via a specific account."""
+    import io
+    client = _clients.get(account_name)
+    if not client:
+        raise RuntimeError(f"Account '{account_name}' not connected")
+
+    # Telethon accepts file-like objects with voice_note=True
+    voice_file = io.BytesIO(audio_bytes)
+    voice_file.name = "voice.ogg"  # Telegram expects ogg/opus for voice notes
+    await client.send_file(chat_id, voice_file, voice_note=True)
+
+
 async def _connect_single(account_name: str):
     """Connect a single account (called after successful auth)."""
     from telethon import TelegramClient, events
@@ -284,6 +297,27 @@ async def _connect_single(account_name: str):
         logger.error(f"[TELEGRAM] Failed to hot-connect '{account_name}': {e}")
 
 
+def _generate_voice(text: str) -> bytes:
+    """Generate TTS audio bytes from text. Returns bytes or None."""
+    try:
+        from core.api_fastapi import get_system
+        system = get_system()
+        if not system or not hasattr(system, 'tts') or not system.tts:
+            logger.warning("[TELEGRAM] TTS not available for voice generation")
+            return None
+        # Strip avatar tags and other markup
+        import re
+        clean = re.sub(r'<<avatar:\s*[a-zA-Z0-9_]+(?:\s+\d+(?:\.\d+)?s)?>>', '', text)
+        clean = clean.strip()
+        if not clean:
+            return None
+        audio_data = system.tts.generate_audio_data(clean)
+        return audio_data
+    except Exception as e:
+        logger.error(f"[TELEGRAM] TTS generation failed: {e}")
+        return None
+
+
 def _reply_handler(task, event_data: dict, response_text: str):
     """Route LLM response back to the Telegram chat that triggered the daemon."""
     chat_id = event_data.get("chat_id")
@@ -302,12 +336,14 @@ def _reply_handler(task, event_data: dict, response_text: str):
     if not clean:
         return
 
-    # Determine parse mode from task config
+    # Determine parse mode and voice from task config
     reply_format = task.get("trigger_config", {}).get("reply_format", "text")
+    send_text = reply_format not in ("voice",)
+    send_voice = reply_format in ("voice", "text+voice")
     parse_mode = None
-    if reply_format == "markdown":
+    if reply_format in ("markdown",):
         parse_mode = "md"
-    elif reply_format == "html":
+    elif reply_format in ("html",):
         parse_mode = "html"
 
     loop = _loop  # Snapshot — stop() may set _loop = None concurrently
@@ -316,11 +352,30 @@ def _reply_handler(task, event_data: dict, response_text: str):
         return
 
     try:
-        future = asyncio.run_coroutine_threadsafe(
-            send_message(account, chat_id, clean, parse_mode=parse_mode),
-            loop
-        )
-        future.result(timeout=15)
-        logger.info(f"[TELEGRAM] Reply sent to chat {chat_id} via {account}")
+        # Send text message
+        if send_text:
+            future = asyncio.run_coroutine_threadsafe(
+                send_message(account, chat_id, clean, parse_mode=parse_mode),
+                loop
+            )
+            future.result(timeout=15)
+
+        # Generate and send voice note
+        if send_voice:
+            try:
+                audio_bytes = _generate_voice(clean)
+                if audio_bytes:
+                    future = asyncio.run_coroutine_threadsafe(
+                        send_voice_note(account, chat_id, audio_bytes),
+                        loop
+                    )
+                    future.result(timeout=30)
+                    logger.info(f"[TELEGRAM] Voice note sent to chat {chat_id}")
+                else:
+                    logger.warning("[TELEGRAM] TTS generation returned no audio")
+            except Exception as ve:
+                logger.error(f"[TELEGRAM] Voice note failed: {ve}")
+
+        logger.info(f"[TELEGRAM] Reply sent to chat {chat_id} via {account} (format={reply_format})")
     except Exception as e:
         logger.error(f"[TELEGRAM] Reply failed: {e}")

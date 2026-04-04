@@ -38,7 +38,9 @@
             "options": [
               {"value": "text", "label": "Plain Text"},
               {"value": "markdown", "label": "Markdown"},
-              {"value": "html", "label": "HTML"}
+              {"value": "html", "label": "HTML"},
+              {"value": "text+voice", "label": "Text + Voice Note"},
+              {"value": "voice", "label": "Voice Note Only"}
             ],
             "default": "text"
           }

@@ -1,3 +1,7 @@
+# 2.5.3 - Status plugin
+- Status plugin for bug reports
+- Sapphire can call status plugin as tool
+- Pinned fastapi lower to fix starlette 500 error
 # 2.5.2 - Avatar maker
 - Get character for Mixamo
 - Load Mixamo char in, get animations
