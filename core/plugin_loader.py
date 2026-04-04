@@ -174,6 +174,11 @@ class PluginLoader:
             # Verify signature on discovery (before any code loads)
             verified, verify_msg, verify_meta = verify_plugin(child)
 
+            try:
+                manifest_mtime = manifest_path.stat().st_mtime
+            except Exception:
+                manifest_mtime = 0
+
             self._plugins[name] = {
                 "manifest": manifest,
                 "path": child,
@@ -184,6 +189,7 @@ class PluginLoader:
                 "verify_msg": verify_msg,
                 "verify_tier": verify_meta.get("tier", "unsigned"),
                 "verified_author": verify_meta.get("author"),
+                "_manifest_mtime": manifest_mtime,
             }
             logger.debug(f"[PLUGINS] Found: {name} ({band}, enabled={is_enabled}, {verify_msg})")
 
@@ -891,6 +897,17 @@ class PluginLoader:
 
                 with self._lock:
                     if name in self._plugins:
+                        # Check if manifest changed on disk (mtime)
+                        existing = self._plugins[name]
+                        try:
+                            disk_mtime = manifest_path.stat().st_mtime
+                            cached_mtime = existing.get("_manifest_mtime", 0)
+                            if disk_mtime > cached_mtime and existing.get("loaded"):
+                                logger.info(f"[PLUGINS] Rescan: '{name}' changed on disk, reloading")
+                                self.reload_plugin(name)
+                                new_found.append(f"{name} (reloaded)")
+                        except Exception:
+                            pass
                         continue
 
                     if not self._validate_manifest(name, manifest):
@@ -904,6 +921,11 @@ class PluginLoader:
                     verified, verify_msg, verify_meta = verify_plugin(child)
                     is_enabled = name in enabled_list or manifest.get("default_enabled", False)
 
+                    try:
+                        mtime = manifest_path.stat().st_mtime
+                    except Exception:
+                        mtime = 0
+
                     self._plugins[name] = {
                         "manifest": manifest,
                         "path": child,
@@ -914,6 +936,7 @@ class PluginLoader:
                         "verify_msg": verify_msg,
                         "verify_tier": verify_meta.get("tier", "unsigned"),
                         "verified_author": verify_meta.get("author"),
+                        "_manifest_mtime": mtime,
                     }
                 new_found.append(name)
 
