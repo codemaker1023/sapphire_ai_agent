@@ -13,6 +13,7 @@ This module orchestrates:
 import importlib.util
 import json
 import logging
+import logging.handlers
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Create dedicated file handler for story engine debugging
 _state_log_path = Path(__file__).parent.parent.parent / "user" / "logs" / "story_engine.log"
 _state_log_path.parent.mkdir(parents=True, exist_ok=True)
-_state_file_handler = logging.FileHandler(_state_log_path, mode='a')
+_state_file_handler = logging.handlers.RotatingFileHandler(_state_log_path, maxBytes=5*1024*1024, backupCount=3)
 _state_file_handler.setLevel(logging.DEBUG)
 _state_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(_state_file_handler)

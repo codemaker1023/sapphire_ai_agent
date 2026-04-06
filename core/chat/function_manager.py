@@ -856,6 +856,9 @@ class FunctionManager:
                 success = False
 
         execution_time = time.time() - start_time
+        if result is None:
+            result = "(no output)"
+
         self._log_tool_call(function_name, arguments, result, execution_time, success)
 
         # post_execute hook — plugins can observe results

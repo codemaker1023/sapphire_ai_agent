@@ -753,6 +753,23 @@ class StreamingChat:
             # (e.g. user hit Stop mid-tool-execution)
             if self.main_chat.session_manager._in_tool_cycle:
                 logger.info("[CLEANUP] Closing orphaned tool cycle from cancelled stream")
+                # Inject dummy tool_results for any pending tool_calls so LLM history
+                # stays valid (providers require tool_result after tool_calls)
+                try:
+                    msgs = self.main_chat.session_manager.current_chat.messages
+                    for msg in reversed(msgs):
+                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                            existing_results = {m.get("tool_call_id") for m in msgs if m.get("role") == "tool"}
+                            for tc in msg["tool_calls"]:
+                                tc_id = tc.get("id", "")
+                                if tc_id not in existing_results:
+                                    self.main_chat.session_manager.add_tool_result(
+                                        tc_id, tc.get("function", {}).get("name", "unknown"),
+                                        "[Cancelled by user]"
+                                    )
+                            break
+                except Exception as e:
+                    logger.warning(f"[CLEANUP] Failed to inject cancel tool results: {e}")
                 self.main_chat.session_manager.add_assistant_final(
                     content="[Cancelled during tool execution]"
                 )

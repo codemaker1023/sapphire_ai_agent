@@ -178,6 +178,7 @@ async def _connect_single(account_name: str, token: str = None):
     @client.event
     async def on_ready():
         logger.info(f"[DISCORD] Connected: {account_name} ({client.user.name}#{client.user.discriminator})")
+        _clients[account_name] = client
         try:
             from core.plugin_loader import plugin_loader
             state = plugin_loader.get_plugin_state("discord")
@@ -253,8 +254,6 @@ async def _connect_single(account_name: str, token: str = None):
             _start_typing(message.channel)
 
         _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
-
-    _clients[account_name] = client
 
     # Start client with retry on rate limit
     async def _start_with_retry():
@@ -374,6 +373,12 @@ def _reply_handler(task, event_data: dict, response_text: str):
 
     if not channel_id or not account:
         logger.warning("[DISCORD] Reply handler missing channel_id or account")
+        return
+
+    # Respect auto_reply toggle — if disabled, don't send responses
+    trigger_config = task.get("trigger_config", {})
+    if not trigger_config.get("auto_reply"):
+        logger.debug(f"[DISCORD] auto_reply disabled for task, skipping reply to #{event_data.get('channel_name', channel_id)}")
         return
 
     # Cooldown check — skip if replied to this channel too recently

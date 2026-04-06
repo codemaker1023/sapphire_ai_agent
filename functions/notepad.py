@@ -6,6 +6,8 @@ Stores in user/notepad/notepad.txt with line-numbered CRUD.
 
 import os
 import logging
+import tempfile
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 ENABLED = True
 EMOJI = '📝'
 NOTEPAD_PATH = Path("user/notepad/notepad.txt")
+_notepad_lock = threading.Lock()
 
 AVAILABLE_FUNCTIONS = [
     'notepad_read',
@@ -116,9 +119,12 @@ def _read_lines():
 
 
 def _write_lines(lines):
-    """Write lines to notepad."""
+    """Write lines to notepad (atomic via tmp+rename)."""
     path = _ensure_notepad()
-    path.write_text('\n'.join(lines) + '\n' if lines else '')
+    content = '\n'.join(lines) + '\n' if lines else ''
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(content)
+    tmp.replace(path)
 
 
 def _format_notepad(lines):
@@ -133,7 +139,12 @@ def _format_notepad(lines):
 
 
 def execute(function_name, arguments, config):
-    """Execute notepad functions."""
+    """Execute notepad functions. Lock ensures parallel tool calls don't corrupt."""
+    with _notepad_lock:
+      return _execute_inner(function_name, arguments, config)
+
+
+def _execute_inner(function_name, arguments, config):
     try:
         if function_name == "notepad_read":
             lines = _read_lines()

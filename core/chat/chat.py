@@ -47,6 +47,8 @@ def friendly_llm_error(e):
 
     # Connection errors — detect local providers like LM Studio
     if isinstance(e, ConnectionError) or 'ConnectError' in type_name or 'connection' in error_str:
+        if 'no llm' in error_str or 'no providers' in error_str:
+            return "No LLM providers are configured or available. Go to Settings to add an API key and enable a provider."
         if any(h in error_str for h in ('127.0.0.1', 'localhost', '0.0.0.0')):
             return "Can't reach LM Studio — open LM Studio, load a model, and enable its local server."
         return "Lost connection to the LLM server. Check that the service is running."
