@@ -387,12 +387,6 @@ def _reply_handler(task, event_data: dict, response_text: str):
         logger.warning("[DISCORD] Reply handler missing channel_id or account")
         return
 
-    # Respect auto_reply toggle — if disabled, don't send responses
-    trigger_config = task.get("trigger_config", {})
-    if not trigger_config.get("auto_reply"):
-        logger.debug(f"[DISCORD] auto_reply disabled for task, skipping reply to #{event_data.get('channel_name', channel_id)}")
-        return
-
     # Cooldown check — skip if replied to this channel too recently
     cooldown = task.get("trigger_config", {}).get("cooldown", 0)
     if cooldown and channel_id:
