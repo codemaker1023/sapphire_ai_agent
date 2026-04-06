@@ -13,10 +13,26 @@ logger = logging.getLogger(__name__)
 _rate_limits: dict = defaultdict(list)
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 5  # attempts per window
+_last_prune = 0.0
+
+
+def _prune_stale_keys():
+    """Periodically remove stale entries from rate limit dicts (every 5 min)."""
+    global _last_prune
+    now = time.time()
+    if now - _last_prune < 300:
+        return
+    _last_prune = now
+    cutoff = now - max(RATE_LIMIT_WINDOW, 300)
+    for d in (_rate_limits, _endpoint_limits):
+        stale = [k for k, v in d.items() if not v or v[-1] < cutoff]
+        for k in stale:
+            del d[k]
 
 
 def check_rate_limit(ip: str) -> bool:
     """Returns True if rate limited, False if OK."""
+    _prune_stale_keys()
     now = time.time()
     _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_LIMIT_WINDOW]
     if len(_rate_limits[ip]) >= RATE_LIMIT_MAX:

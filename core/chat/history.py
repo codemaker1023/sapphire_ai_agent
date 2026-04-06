@@ -858,6 +858,14 @@ class ChatSessionManager:
                 logger.debug(f"Saved chat '{self.active_chat_name}' ({len(self.current_chat.messages)} messages)")
             except Exception as e:
                 logger.error(f"Failed to save chat '{self.active_chat_name}': {e}")
+                try:
+                    from core.event_bus import publish, Events
+                    publish(Events.CONTINUITY_TASK_ERROR, {
+                        "task": "Chat Save",
+                        "error": f"Failed to save chat: {e}. Messages may be lost on restart."
+                    })
+                except Exception:
+                    pass
 
     def list_chat_files(self) -> List[Dict[str, Any]]:
         """List all available chats with metadata."""
@@ -867,17 +875,16 @@ class ChatSessionManager:
         try:
             with self._lock, self._get_connection() as conn:
                 cursor = conn.execute(
-                    """SELECT name, settings, messages, updated_at FROM chats 
+                    """SELECT name, settings, json_array_length(messages) as msg_count, updated_at FROM chats
                        ORDER BY updated_at DESC"""
                 )
                 for row in cursor:
-                    messages = json.loads(row["messages"])
                     settings = json.loads(row["settings"])
                     
                     chats.append({
                         "name": row["name"],
                         "display_name": settings.get("private_display_name") or settings.get("story_display_name") or row["name"].replace('_', ' ').title(),
-                        "message_count": len(messages),
+                        "message_count": row["msg_count"] or 0,
                         "is_active": row["name"] == self.active_chat_name,
                         "modified": row["updated_at"],
                         "story_chat": bool(settings.get("story_chat")),

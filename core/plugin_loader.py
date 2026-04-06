@@ -1091,8 +1091,12 @@ class PluginLoader:
             return
 
         reply_handler = self._get_reply_handler(source_name)
+        any_accepted = False
         for task in tasks:
-            self._scheduler.fire_event_task(task["id"], event_data, reply_callback=reply_handler)
+            result = self._scheduler.fire_event_task(task["id"], event_data, reply_callback=reply_handler)
+            if result.get("success", False) or result.get("error") not in ("Event filtered out", "Account mismatch"):
+                any_accepted = True
+        return any_accepted
 
     def active_daemon_accounts(self, source_name: str) -> set:
         """Return set of account names with enabled daemon tasks for a given event source."""

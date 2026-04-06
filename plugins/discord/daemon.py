@@ -248,12 +248,15 @@ async def _connect_single(account_name: str, token: str = None):
         from plugins.discord.tools.discord_tools import get_send_count
         payload["_send_count_before"] = get_send_count(account_name)
 
-        # Only start typing if this message will likely be processed
-        # (i.e. if mentioned and tasks require it, don't type on every message)
+        # Emit event — start typing only if a task actually accepted it
         if mentioned:
             _start_typing(message.channel)
 
-        _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
+        accepted = _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
+
+        # If no task accepted (all filtered/mismatched), stop the typing indicator
+        if not accepted and mentioned:
+            _stop_typing(str(message.channel.id))
 
     # Start client with retry on rate limit
     async def _start_with_retry():
@@ -275,7 +278,7 @@ async def _connect_single(account_name: str, token: str = None):
 
 
 def _get_channel_cooldown(channel_id_str):
-    """Get the effective cooldown for a channel from any matching task's trigger_config."""
+    """Get the effective cooldown for a specific channel from matching task's trigger_config."""
     try:
         from core.api_fastapi import get_system
         system = get_system()
@@ -285,10 +288,19 @@ def _get_channel_cooldown(channel_id_str):
                     continue
                 tc = task.get("trigger_config", {})
                 source = tc.get("source", "") or tc.get("event_source", "")
-                if "discord" in source:
-                    cd = tc.get("cooldown", 0)
-                    if cd:
-                        return float(cd)
+                if "discord" not in source:
+                    continue
+                cd = tc.get("cooldown", 0)
+                if not cd:
+                    continue
+                # Check if this task's filter targets this specific channel
+                task_filter = tc.get("filter", {})
+                if task_filter:
+                    filter_ch = task_filter.get("channel_id") or task_filter.get("channel_name")
+                    if filter_ch and str(filter_ch).lower() != channel_id_str.lower():
+                        continue  # This task's cooldown doesn't apply to this channel
+                # No filter (applies to all channels) or filter matches
+                return float(cd)
     except Exception:
         pass
     return 0

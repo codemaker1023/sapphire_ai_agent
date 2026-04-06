@@ -92,6 +92,7 @@ class ContinuityScheduler:
         self._task_last_matched: Dict[str, str] = {}  # task_id -> "YYYY-MM-DD HH:MM"
         self._task_progress: Dict[str, Dict] = {}  # task_id -> {iteration, total}
         self._event_threads: list = []  # track spawned event worker threads
+        self._concurrency_sem = threading.Semaphore(3)  # max 3 concurrent task threads
         
         self._ensure_dirs()
         self._load_tasks()
@@ -472,6 +473,13 @@ class ContinuityScheduler:
 
     def _execute_task(self, task: Dict):
         """Execute a task and drain any pending queue. Runs on a worker thread."""
+        self._concurrency_sem.acquire()
+        try:
+            self._execute_task_inner(task)
+        finally:
+            self._concurrency_sem.release()
+
+    def _execute_task_inner(self, task: Dict):
         task_id = task["id"]
         task_name = task.get("name", "Unnamed")
 

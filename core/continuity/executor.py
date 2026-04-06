@@ -229,52 +229,69 @@ class ContinuityExecutor:
                 self._restore_voice(original_voice)
                 raise
 
-        try:
-            task_settings = self._extract_task_settings(task)
-            ctx = ExecutionContext(
-                self.system.llm_chat.function_manager,
-                self.system.llm_chat.tool_engine,
-                task_settings
-            )
-
-            # Set Discord reply channel for auto-reply targeting
-            reply_ch = task.get("_discord_reply_channel_id")
-            if reply_ch:
-                try:
-                    from plugins.discord.tools.discord_tools import _reply_channel_id
-                    _reply_channel_id.set(reply_ch)
-                except ImportError:
-                    pass
-
-            tts_enabled = task.get("tts_enabled", True)
-            browser_tts = task.get("browser_tts", False)
-            msg = task.get("initial_message", "Hello.")
-
             try:
-                response = ctx.run(msg)
+                task_settings = self._extract_task_settings(task)
+                ctx = ExecutionContext(
+                    self.system.llm_chat.function_manager,
+                    self.system.llm_chat.tool_engine,
+                    task_settings
+                )
 
-                if response_cb and response:
-                    try: response_cb(response)
-                    except Exception as _e: logger.error(f"[Continuity] Response callback failed: {_e}")
+                # Set Discord reply channel for auto-reply targeting
+                reply_ch = task.get("_discord_reply_channel_id")
+                if reply_ch:
+                    try:
+                        from plugins.discord.tools.discord_tools import _reply_channel_id
+                        _reply_channel_id.set(reply_ch)
+                    except ImportError:
+                        pass
 
-                if response:
-                    if browser_tts:
-                        publish(Events.TTS_SPEAK, {"text": response, "task": task_name})
-                    elif tts_enabled and hasattr(self.system, 'tts') and self.system.tts:
-                        try:
-                            self.system.tts.speak_sync(response)
-                        except Exception as tts_err:
-                            logger.warning(f"[Continuity] TTS failed: {tts_err}")
+                tts_enabled = task.get("tts_enabled", True)
+                browser_tts = task.get("browser_tts", False)
+                msg = task.get("initial_message", "Hello.")
 
-                result["responses"].append({
-                    "iteration": 1,
-                    "input": msg,
-                    "output": response or None
-                })
+                try:
+                    response = ctx.run(msg)
+
+                    if response_cb and response:
+                        try: response_cb(response)
+                        except Exception as _e: logger.error(f"[Continuity] Response callback failed: {_e}")
+
+                    if response:
+                        if browser_tts:
+                            publish(Events.TTS_SPEAK, {"text": response, "task": task_name})
+                        elif tts_enabled and hasattr(self.system, 'tts') and self.system.tts:
+                            try:
+                                self.system.tts.speak_sync(response)
+                            except Exception as tts_err:
+                                logger.warning(f"[Continuity] TTS failed: {tts_err}")
+
+                    result["responses"].append({
+                        "iteration": 1,
+                        "input": msg,
+                        "output": response or None
+                    })
+                except Exception as e:
+                    from core.chat.chat import friendly_llm_error
+                    friendly = friendly_llm_error(e)
+                    error_msg = f"Task failed: {friendly or e}"
+                    logger.error(f"[Continuity] {error_msg}", exc_info=True)
+                    result["errors"].append(error_msg)
+                    from core.event_bus import publish, Events
+                    publish(Events.CONTINUITY_TASK_ERROR, {
+                        "task": task.get("name", "Unknown"),
+                        "error": friendly or str(e),
+                    })
+
+                if progress_cb:
+                    progress_cb(1, 1)
+
+                result["success"] = len(result["errors"]) == 0
+
             except Exception as e:
                 from core.chat.chat import friendly_llm_error
                 friendly = friendly_llm_error(e)
-                error_msg = f"Task failed: {friendly or e}"
+                error_msg = f"Background task failed: {friendly or e}"
                 logger.error(f"[Continuity] {error_msg}", exc_info=True)
                 result["errors"].append(error_msg)
                 from core.event_bus import publish, Events
@@ -283,25 +300,7 @@ class ContinuityExecutor:
                     "error": friendly or str(e),
                 })
 
-            if progress_cb:
-                progress_cb(1, 1)
-
-            result["success"] = len(result["errors"]) == 0
-
-        except Exception as e:
-            from core.chat.chat import friendly_llm_error
-            friendly = friendly_llm_error(e)
-            error_msg = f"Background task failed: {friendly or e}"
-            logger.error(f"[Continuity] {error_msg}", exc_info=True)
-            result["errors"].append(error_msg)
-            from core.event_bus import publish, Events
-            publish(Events.CONTINUITY_TASK_ERROR, {
-                "task": task.get("name", "Unknown"),
-                "error": friendly or str(e),
-            })
-
-        finally:
-            with self._voice_lock:
+            finally:
                 self._restore_voice(original_voice)
 
         result["completed_at"] = datetime.now().isoformat()
