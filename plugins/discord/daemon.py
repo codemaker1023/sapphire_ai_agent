@@ -231,6 +231,18 @@ async def _connect_single(account_name: str, token: str = None):
         }
 
         logger.info(f"[DISCORD] Message from {payload['username']} in #{payload['channel_name']} (mentioned={mentioned})")
+
+        # Pre-check cooldown — don't emit event (or run LLM) if channel is cooling down
+        ch_id_str = str(message.channel.id)
+        last = _last_reply_time.get(ch_id_str, 0)
+        if last:
+            # Find the cooldown from any matching task — use the max
+            cooldown = _get_channel_cooldown(ch_id_str)
+            elapsed = time.time() - last
+            if cooldown and elapsed < cooldown:
+                logger.info(f"[DISCORD] Cooldown: skipping message in #{payload['channel_name']} ({int(cooldown - elapsed)}s remaining)")
+                return
+
         # Snapshot send count before processing — reply handler compares after LLM runs
         from plugins.discord.tools.discord_tools import get_send_count
         payload["_send_count_before"] = get_send_count(account_name)
@@ -259,6 +271,26 @@ async def _connect_single(account_name: str, token: str = None):
                     return
 
     asyncio.ensure_future(_start_with_retry())
+
+
+def _get_channel_cooldown(channel_id_str):
+    """Get the effective cooldown for a channel from any matching task's trigger_config."""
+    try:
+        from core.api_fastapi import get_system
+        system = get_system()
+        if system and hasattr(system, 'continuity_scheduler') and system.continuity_scheduler:
+            for task in system.continuity_scheduler.list_tasks():
+                if not task.get("enabled"):
+                    continue
+                tc = task.get("trigger_config", {})
+                source = tc.get("source", "") or tc.get("event_source", "")
+                if "discord" in source:
+                    cd = tc.get("cooldown", 0)
+                    if cd:
+                        return float(cd)
+    except Exception:
+        pass
+    return 0
 
 
 def _start_typing(channel):
