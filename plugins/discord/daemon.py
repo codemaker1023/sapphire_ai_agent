@@ -21,6 +21,8 @@ _plugin_loader = None
 _last_connect_time: float = 0  # prevent rapid reconnects
 _CONNECT_COOLDOWN = 30  # seconds between full reconnect cycles
 _lifecycle_lock = threading.Lock()
+_typing_tasks: dict = {}  # {channel_id: asyncio.Task} — active typing indicators
+_last_reply_time: dict = {}  # {channel_id: timestamp} — for cooldown
 
 
 def start(plugin_loader, settings):
@@ -232,6 +234,10 @@ async def _connect_single(account_name: str, token: str = None):
         # Snapshot send count before processing — reply handler compares after LLM runs
         from plugins.discord.tools.discord_tools import get_send_count
         payload["_send_count_before"] = get_send_count(account_name)
+
+        # Start typing indicator while LLM processes
+        _start_typing(message.channel)
+
         _plugin_loader.emit_daemon_event("discord_message", json.dumps(payload))
 
     _clients[account_name] = client
@@ -253,6 +259,37 @@ async def _connect_single(account_name: str, token: str = None):
                     return
 
     asyncio.ensure_future(_start_with_retry())
+
+
+def _start_typing(channel):
+    """Start a typing indicator loop for a channel."""
+    channel_id = channel.id
+
+    async def _typing_loop():
+        try:
+            async with channel.typing():
+                # typing() auto-renews every ~10s, we just hold it open
+                while True:
+                    await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    # Cancel any existing typing task for this channel
+    old = _typing_tasks.pop(channel_id, None)
+    if old and not old.done():
+        old.cancel()
+
+    if _loop and _loop.is_running():
+        _typing_tasks[channel_id] = _loop.create_task(_typing_loop())
+
+
+def _stop_typing(channel_id):
+    """Stop the typing indicator for a channel."""
+    task = _typing_tasks.pop(channel_id, None)
+    if task and not task.done():
+        task.cancel()
 
 
 async def send_message(account_name: str, channel_id: int, text: str):
@@ -282,6 +319,13 @@ def _reply_handler(task, event_data: dict, response_text: str):
     channel_id = event_data.get("channel_id")
     account = event_data.get("account", "")
 
+    # Stop typing indicator regardless of outcome
+    if channel_id:
+        try:
+            _stop_typing(int(channel_id))
+        except (ValueError, TypeError):
+            pass
+
     # Smart model already used the tool — send count increased since we emitted
     count_before = event_data.get("_send_count_before", 0)
     if account and get_send_count(account) > count_before:
@@ -291,6 +335,15 @@ def _reply_handler(task, event_data: dict, response_text: str):
     if not channel_id or not account:
         logger.warning("[DISCORD] Reply handler missing channel_id or account")
         return
+
+    # Cooldown check — skip if replied to this channel too recently
+    cooldown = task.get("trigger_config", {}).get("cooldown", 0)
+    if cooldown and channel_id:
+        now = time.time()
+        last = _last_reply_time.get(channel_id, 0)
+        if now - last < cooldown:
+            logger.info(f"[DISCORD] Cooldown active for channel {channel_id} ({int(cooldown - (now - last))}s remaining)")
+            return
 
     # Strip think tags
     clean = re.sub(r'<(?:seed:)?think[^>]*>[\s\S]*</(?:seed:think|seed:cot_budget_reflect|think)>', '', response_text, flags=re.IGNORECASE)
@@ -315,6 +368,7 @@ def _reply_handler(task, event_data: dict, response_text: str):
             loop
         )
         future.result(timeout=15)
+        _last_reply_time[channel_id] = time.time()
         logger.info(f"[DISCORD] Reply sent to #{event_data.get('channel_name', channel_id)} via {account}")
     except Exception as e:
         logger.error(f"[DISCORD] Reply failed: {e}")

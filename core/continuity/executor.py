@@ -81,14 +81,37 @@ class ContinuityExecutor:
                 parts.append(f"  {line}")
             parts.append("")  # blank line before the trigger message
 
+        # Current date/time for context
+        from datetime import datetime as _dt
+        try:
+            import config as _cfg
+            tz_name = getattr(_cfg, 'USER_TIMEZONE', '')
+            if tz_name:
+                from zoneinfo import ZoneInfo
+                now = _dt.now(ZoneInfo(tz_name))
+            else:
+                now = _dt.now().astimezone()
+        except Exception:
+            now = _dt.now()
+        parts.append(f"Current time: {now.strftime('%Y-%m-%d %H:%M %Z').strip()}")
+
         # Include chat_id/account for messaging tools (Telegram, Discord)
         chat_id = obj.get("chat_id")
+        channel_id = obj.get("channel_id")
         account = obj.get("account")
         if chat_id:
             parts.append(f"chat_id: {chat_id}")
+        if channel_id:
+            parts.append(f"channel_id: {channel_id}")
         if account:
             parts.append(f"account: {account}")
-        if chat_id or account:
+
+        # Discord mention hint
+        author_id = obj.get("author_id")
+        if author_id and channel_id:
+            parts.append(f"To @mention this user in Discord, include <@{author_id}> in your message")
+
+        if chat_id or channel_id or account:
             parts.append("")
 
         # The trigger message itself — emphasized

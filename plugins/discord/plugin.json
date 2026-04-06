@@ -44,6 +44,13 @@
             "label": "Auto-reply in channel",
             "default": false,
             "help": "When enabled, the AI's response is sent back to the channel."
+          },
+          {
+            "key": "cooldown",
+            "type": "number",
+            "label": "Reply cooldown (seconds)",
+            "default": 0,
+            "help": "Minimum seconds between replies in the same channel. 0 = no limit. 60 = max once per minute."
           }
         ]
       }]
