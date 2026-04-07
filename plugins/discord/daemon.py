@@ -206,11 +206,13 @@ async def _connect_single(account_name: str, token: str = None):
                 mentioned = any(role in bot_member.roles for role in message.role_mentions)
 
         # Fetch recent history for context (last 10 messages before this one)
+        # Include author IDs so the LLM can mention participants via <@id> format
         recent_history = []
         try:
             async for msg in message.channel.history(limit=11, before=message):
                 who = msg.author.display_name or msg.author.name
-                recent_history.append(f"{who}: {msg.clean_content or '(no text)'}")
+                author_id = msg.author.id
+                recent_history.append(f"{who} [id:{author_id}]: {msg.clean_content or '(no text)'}")
             recent_history.reverse()  # oldest first
         except Exception:
             pass

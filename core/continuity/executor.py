@@ -106,10 +106,10 @@ class ContinuityExecutor:
         if account:
             parts.append(f"account: {account}")
 
-        # Discord mention hint
+        # Discord mention hint — works for sender and anyone in recent history
         author_id = obj.get("author_id")
         if author_id and channel_id:
-            parts.append(f"To @mention this user in Discord, include <@{author_id}> in your message")
+            parts.append(f"To @mention a Discord user, use <@userid> (e.g. <@{author_id}> for the sender). User IDs appear in [id:...] brackets in the chat history.")
 
         if chat_id or channel_id or account:
             parts.append("")
