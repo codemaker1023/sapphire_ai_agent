@@ -441,6 +441,15 @@ def telegram_add_contact(args, config):
         return ready
     client, loop = ready
 
+    # Bots can't add contacts — client accounts only
+    account = _get_account()
+    if account:
+        from core.plugin_loader import plugin_loader
+        state = plugin_loader.get_plugin_state("telegram")
+        meta = (state.get("accounts", {}) if state else {}).get(account, {})
+        if meta.get("type") == "bot":
+            return "Cannot add contacts — this is a bot account. Only client accounts can manage contacts."
+
     phone = args.get("phone", "").strip()
     first_name = args.get("first_name", "").strip()
     last_name = args.get("last_name", "").strip()
