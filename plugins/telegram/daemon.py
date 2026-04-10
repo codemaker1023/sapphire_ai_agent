@@ -181,6 +181,15 @@ async def _connect_accounts(plugin_loader, api_id: int, api_hash: str):
             label = f"@{me.username}" if me.username else me.first_name
             logger.info(f"[TELEGRAM] Connected {acct_type}: {account_name} ({label})")
 
+            # Pre-cache entity database from existing dialogs (client accounts only).
+            # Without this, send_message fails on user_ids Telethon hasn't "seen" yet.
+            if acct_type != "bot":
+                try:
+                    dialogs = await client.get_dialogs()
+                    logger.info(f"[TELEGRAM] Cached {len(dialogs)} dialogs for '{account_name}'")
+                except Exception as e:
+                    logger.warning(f"[TELEGRAM] Failed to cache dialogs for '{account_name}': {e}")
+
             # Register message handler
             @client.on(events.NewMessage(incoming=True))
             async def _on_message(event, _name=account_name):
@@ -295,7 +304,20 @@ async def send_message(account_name: str, chat_id: int, text: str, parse_mode: s
     if not client:
         raise RuntimeError(f"Account '{account_name}' not connected")
 
-    await client.send_message(chat_id, text, parse_mode=parse_mode)
+    try:
+        await client.send_message(chat_id, text, parse_mode=parse_mode)
+    except ValueError as e:
+        # "Could not find the input entity" — entity cache miss.
+        # Try resolving the entity first (fetches access_hash from Telegram), then retry.
+        if "could not find the input entity" in str(e).lower():
+            logger.info(f"[TELEGRAM] Entity cache miss for {chat_id}, attempting resolution")
+            try:
+                await client.get_entity(chat_id)
+                await client.send_message(chat_id, text, parse_mode=parse_mode)
+            except Exception:
+                raise e  # raise original error if resolution also fails
+        else:
+            raise
 
 
 async def send_voice_note(account_name: str, chat_id: int, audio_bytes: bytes):
@@ -354,6 +376,14 @@ async def _connect_single(account_name: str):
 
         me = await client.get_me()
         _self_ids[account_name] = me.id
+
+        # Pre-cache dialogs for client accounts
+        if acct_type != "bot":
+            try:
+                dialogs = await client.get_dialogs()
+                logger.info(f"[TELEGRAM] Cached {len(dialogs)} dialogs for '{account_name}'")
+            except Exception:
+                pass
 
         @client.on(events.NewMessage(incoming=True))
         async def _on_message(event, _name=account_name):
