@@ -115,6 +115,32 @@ TOOLS = [
                 "required": ["chat_id", "text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "telegram_add_contact",
+            "description": "Add a contact to Sapphire's Telegram account. Required before you can message someone new who hasn't messaged you first. Only works in client mode (not bot mode).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number with country code (e.g. +15551234567)"
+                    },
+                    "first_name": {
+                        "type": "string",
+                        "description": "Contact's first name"
+                    },
+                    "last_name": {
+                        "type": "string",
+                        "description": "Contact's last name (optional)",
+                        "default": ""
+                    }
+                },
+                "required": ["phone", "first_name"]
+            }
+        }
     }
 ]
 
@@ -180,6 +206,8 @@ def execute(function_name, arguments, config):
             result = telegram_send_voice(arguments, config)
         elif function_name == "telegram_send_image":
             result = telegram_send_image(arguments, config)
+        elif function_name == "telegram_add_contact":
+            result = telegram_add_contact(arguments, config)
         else:
             return f"Unknown function: {function_name}", False
         # Inner functions return error strings on failure
@@ -405,3 +433,46 @@ def telegram_read_messages(args, config):
     except Exception as e:
         logger.error(f"[TELEGRAM] Read messages failed: {e}")
         return f"Failed to read messages: {e}"
+
+
+def telegram_add_contact(args, config):
+    ready = _check_ready()
+    if isinstance(ready, str):
+        return ready
+    client, loop = ready
+
+    phone = args.get("phone", "").strip()
+    first_name = args.get("first_name", "").strip()
+    last_name = args.get("last_name", "").strip()
+    if not phone or not first_name:
+        return "Missing required fields: phone, first_name"
+
+    try:
+        async def _add():
+            from telethon.tl.functions.contacts import ImportContactsRequest
+            from telethon.tl.types import InputPhoneContact
+            result = await client(ImportContactsRequest(contacts=[
+                InputPhoneContact(
+                    client_id=0,
+                    phone=phone,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+            ]))
+            if result.imported:
+                user = result.users[0] if result.users else None
+                if user:
+                    label = f"@{user.username}" if user.username else f"{user.first_name}"
+                    return f"Contact added: {label} (ID: {user.id}). You can now message them."
+                return f"Contact imported for {phone}."
+            elif result.retry_contacts:
+                return f"Failed — {phone} is not registered on Telegram."
+            else:
+                return f"Contact already exists or could not be imported for {phone}."
+
+        future = asyncio.run_coroutine_threadsafe(_add(), loop)
+        return future.result(timeout=15)
+
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Add contact failed: {e}")
+        return f"Failed to add contact: {e}"
