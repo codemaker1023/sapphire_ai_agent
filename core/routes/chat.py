@@ -591,9 +591,16 @@ async def get_init_data(request: Request, _=Depends(require_login), system=Depen
         plugins_config = _get_merged_plugins()
 
         # Scope declarations — frontend uses this to render scope dropdowns dynamically
-        # in the chat sidebar, trigger editor, persona editor, etc. (Phase 1: 4 core
-        # entries; Phase 3 will add 5 plugin scopes; Phase 4 will move the core 4 into
-        # the memory plugin manifest. The structure is the same throughout.)
+        # in the chat sidebar, trigger editor, persona editor, etc.
+        #
+        # Phase 1: ALL 9 scopes are listed here as "core" (plugin: None) to preserve
+        # the existing 9-dropdown sidebar UX. Phase 3 will move the 5 plugin-style
+        # scopes (email/bitcoin/gcal/telegram/discord) into their respective plugin
+        # manifests (so disabling the plugin hides its scope). Phase 4 will move
+        # memory/goal/knowledge/people into the memory plugin manifest.
+        #
+        # `plugin` field is the plugin name a scope belongs to (None = built into core).
+        # The frontend uses this to hide a scope when its owning plugin is disabled.
         CORE_SCOPE_DECLARATIONS = [
             {"key": "memory",    "label": "memory",  "plugin": None,
              "endpoint": "/api/memory/scopes",            "data_key": "scopes",
@@ -615,6 +622,32 @@ async def get_init_data(request: Request, _=Depends(require_login), system=Depen
              "value_field": "name", "name_field": "name",
              "label_template": "{name} ({count})", "format_js": None,
              "nav_target": "mind:people"},
+            # Plugin-style scopes — Phase 3 moves these into plugin manifests
+            {"key": "email",     "label": "email",   "plugin": "email",
+             "endpoint": "/api/email/accounts",           "data_key": "accounts",
+             "value_field": "scope", "name_field": "scope",
+             "label_template": "{scope}", "format_js": None,
+             "nav_target": None},
+            {"key": "bitcoin",   "label": "bitcoin", "plugin": "bitcoin",
+             "endpoint": "/api/bitcoin/wallets",          "data_key": "wallets",
+             "value_field": "scope", "name_field": "scope",
+             "label_template": "{scope}", "format_js": None,
+             "nav_target": None},
+            {"key": "gcal",      "label": "calendar","plugin": "google-calendar",
+             "endpoint": "/api/gcal/accounts",            "data_key": "accounts",
+             "value_field": "scope", "name_field": "scope",
+             "label_template": "{label}", "format_js": None,
+             "nav_target": None},
+            {"key": "telegram",  "label": "telegram","plugin": "telegram",
+             "endpoint": "/api/plugin/telegram/accounts", "data_key": "accounts",
+             "value_field": "name", "name_field": "name",
+             "label_template": "{label}", "format_js": None,
+             "nav_target": None},
+            {"key": "discord",   "label": "discord", "plugin": "discord",
+             "endpoint": "/api/plugin/discord/accounts",  "data_key": "accounts",
+             "value_field": "name", "name_field": "name",
+             "label_template": "{bot_name}", "format_js": None,
+             "nav_target": None},
         ]
         scope_declarations = list(CORE_SCOPE_DECLARATIONS)
         # Plugin-declared scopes (populated in Phase 3 when manifests get capabilities.scopes)
