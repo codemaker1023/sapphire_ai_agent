@@ -303,7 +303,10 @@ function renderDetail(p, isActive) {
                     <div class="pa-fence-heading"><span>Mind Scopes</span></div>
                     <div class="pa-fence">
                         <div class="pa-fence-body pa-fence-body-grid">
-                            <div id="pa-scope-dropdowns"></div>
+                            <!-- display:contents makes this placeholder transparent to the
+                                 grid layout — the pa-field children injected by the shared
+                                 renderer become direct children of pa-fence-body-grid. -->
+                            <div id="pa-scope-dropdowns" style="display:contents"></div>
                         </div>
                     </div>
                 </div>

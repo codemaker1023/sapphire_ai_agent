@@ -143,8 +143,23 @@ def _create_llm_worker():
         def run(self):
             from core.continuity.execution_context import ExecutionContext
             from core.api_fastapi import get_system
+            from core.personas import persona_manager
 
             provider_key, model_override = _resolve_model(self._model)
+
+            # Phase 2i: scope values now come from the assigned persona instead of a
+            # hardcoded 9-scope dict. The built-in 'agent' persona (added to
+            # core/personas/personas.json) provides lean background-worker defaults
+            # that match prior behavior: memory/knowledge/people = 'default',
+            # goal/email/bitcoin/gcal/telegram/discord = 'none'.
+            # Zero-touch for new plugin scopes: they're added to the persona via
+            # the Persona editor and flow through automatically.
+            persona = persona_manager.get(self._prompt) or {}
+            persona_settings = persona.get('settings', {}) if isinstance(persona, dict) else {}
+            # Extract only the scope keys from persona settings (other fields like
+            # voice/spice don't apply to background agents — provider/model/prompt/
+            # toolset are handled explicitly below via worker args).
+            scope_settings = {k: v for k, v in persona_settings.items() if k.endswith('_scope')}
 
             task_settings = {
                 'prompt': self._prompt,
@@ -154,14 +169,7 @@ def _create_llm_worker():
                 'max_tool_rounds': 10,
                 'max_parallel_tools': 3,
                 'inject_datetime': True,
-                'memory_scope': 'default',
-                'knowledge_scope': 'default',
-                'goal_scope': 'none',
-                'email_scope': 'none',
-                'bitcoin_scope': 'none',
-                'gcal_scope': 'none',
-                'telegram_scope': 'none',
-                'discord_scope': 'none',
+                **scope_settings,
             }
 
             system = get_system()
