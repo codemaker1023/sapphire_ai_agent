@@ -72,7 +72,12 @@ export function renderScopeDropdowns(container, declarations, settings, options 
             ? `<button type="button" class="${css.navButton}" data-scope-nav="${_esc(decl.nav_target)}" data-scope-key="${_esc(decl.key)}" title="Open in Mind">&#x2197;</button>`
             : '';
 
-        const createBtn = options.onCreateScope
+        // "+" button shown only on declarations with a mind nav_target — matches the
+        // legacy trigger editor UX where the bulk-create scope feature only made sense
+        // for memory/goal/knowledge/people. Plugin scopes don't get "+" because creating
+        // a plugin "account" isn't a single-field-entry operation.
+        const showCreateBtn = options.onCreateScope && decl.nav_target;
+        const createBtn = showCreateBtn
             ? `<button type="button" class="${css.createButton}" data-scope-create="${_esc(decl.key)}" title="Create new scope">+</button>`
             : '';
 
@@ -269,6 +274,34 @@ export function readScopeSettings(container, declarations, options = {}) {
             result[`${decl.key}_scope`] = sel.value || 'default';
         }
     }
+    return result;
+}
+
+
+/**
+ * Read scope dropdown values from a container by DOM discovery — finds every
+ * element tagged with `data-scope-key` (added by renderScopeDropdowns) and reads
+ * its child select. Doesn't need the declarations list to be in scope.
+ *
+ * Useful when the read-site is in a different function than the declarations
+ * (e.g. `readAIConfig` in the trigger editor runs long after `fetchAIConfigData`).
+ *
+ * @param   {HTMLElement} container
+ * @param   {Object}      opts
+ *   @param {string}      opts.missingValue  default value when select is empty (default 'default')
+ * @returns {Object}      { memory_scope: 'work', ... }
+ */
+export function readScopeSettingsFromDom(container, opts = {}) {
+    if (!container) return {};
+    const missingValue = opts.missingValue ?? 'default';
+    const result = {};
+    container.querySelectorAll('[data-scope-key]').forEach(el => {
+        const key = el.dataset.scopeKey;
+        const sel = el.querySelector('select');
+        if (key && sel) {
+            result[`${key}_scope`] = sel.value || missingValue;
+        }
+    });
     return result;
 }
 
