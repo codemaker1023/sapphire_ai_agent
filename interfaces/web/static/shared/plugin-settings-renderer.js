@@ -119,7 +119,7 @@ function renderWidget(field, value) {
 
     switch (widget) {
         case 'textarea':
-            return `<textarea id="${id}" rows="3" placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(String(value))}</textarea>`;
+            return `<textarea id="${id}" rows="${field.rows || 8}" placeholder="${escapeHtml(field.placeholder || '')}" style="width:100%;background:var(--bg-secondary,#1a1b2e);color:var(--text,#e1e1e6);border:1px solid var(--border,#333);border-radius:6px;padding:8px;font-family:monospace;font-size:var(--font-sm,13px);resize:vertical">${escapeHtml(String(value))}</textarea>`;
 
         case 'password': {
             const hasValue = value && String(value).trim();

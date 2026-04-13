@@ -39,9 +39,25 @@
         "key": "coder_instructions",
         "type": "string",
         "widget": "textarea",
-        "label": "Coder Instructions (Base CLAUDE.md)",
-        "default": "You are a code builder. Write clean, working code.\n- Test your work by running it before reporting done\n- Include a README.md with usage instructions\n- Keep it simple and minimal — no over-engineering\n- If you hit a problem you can't solve, describe it clearly in your final response\n- If you notice anything noteworthy, write it to NOTES.md",
-        "help": "Base layer instructions written into CLAUDE.md for every session. Plugin builds add capability-specific docs on top of this."
+        "label": "Base Instructions (all sessions)",
+        "default": "You are a code builder working for Sapphire AI.\n- Write clean, working code\n- Test your work by running it before reporting done\n- When possible, make unit tests or regression tests to verify your code\n- Keep it simple and minimal — no over-engineering\n- If you hit a problem you can't solve, describe it clearly in your final response\n- If you notice anything noteworthy, write it to NOTES.md",
+        "help": "Base layer — included in EVERY Claude Code session (project and plugin). Keep universal."
+      },
+      {
+        "key": "project_instructions",
+        "type": "string",
+        "widget": "textarea",
+        "label": "Project Instructions",
+        "default": "- Include a README.md with usage instructions\n- Keep dependencies minimal\n- For web apps: build as a self-contained index.html with inline JS/CSS (no build step, no npm)\n- Do not install system-wide packages",
+        "help": "Added to CLAUDE.md for general project builds (~/claude-workspaces/). Not included in plugin builds."
+      },
+      {
+        "key": "plugin_instructions",
+        "type": "string",
+        "widget": "textarea",
+        "label": "Plugin Instructions",
+        "default": "- Build ALL files at the ROOT of this workspace directory\n- plugin.json goes at workspace root, tools/ folder at workspace root\n- Do NOT create user/plugins/ or any subdirectory structure — this workspace IS the plugin directory\n- capabilities.tools MUST be a JSON array: [\"tools/name_tools.py\"] — NOT a string\n- capabilities.hooks is a dict: {\"pre_chat\": \"hooks/handler.py\"}\n- Include 'author' field in plugin.json\n- No import restrictions — use whatever the plugin needs (subprocess, os, etc.)\n- You have READ access to docs/plugin-author/ — see examples.md for working code samples of every plugin type\n- Browse real plugins in the docs dir for reference patterns\n- READ docs/plugin-author/examples.md FIRST before building — it has working templates for every plugin type\n- You have READ access to user/logs/sapphire.log — check it if told something failed at runtime\n- grep the log for your plugin name to find errors quickly",
+        "help": "Added to CLAUDE.md for plugin builds (user/plugins/). Not included in project builds."
       },
       {
         "key": "plugin_build_model",
@@ -54,7 +70,7 @@
         "key": "max_budget_usd",
         "type": "number",
         "label": "Budget Cap (USD)",
-        "default": 5,
+        "default": 20,
         "help": "Maximum dollar amount per Claude Code session. Prevents runaway costs on autonomous builds."
       }
     ]

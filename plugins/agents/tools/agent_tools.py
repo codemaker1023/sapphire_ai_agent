@@ -34,17 +34,17 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "spawn_agent",
-            "description": "Launch a background agent. IMPORTANT: Always call agent_options() first to see available agent types — there may be specialized types like 'claude_code' for coding tasks. Do NOT default to 'llm' for coding — check what's available. The agent runs in isolation and reports back automatically when done.",
+            "description": "Launch a background agent. IMPORTANT: Always call agent_options() first to see available agent types — there may be specialized types like 'claude_code' for coding tasks. Do NOT default to 'llm' for coding — check what's available. The agent runs in isolation and reports back automatically when done.\n\nFor 'claude_code_plugin' type: You are the DIRECTOR, not the coder. Claude Code has access to all plugin docs (docs/plugin-author/examples.md) and a real reference plugin (plugins/elevenlabs/). Don't write the code yourself — describe WHAT to build and any specific requirements (API details, voice format, settings fields). Keep your mission/context focused on requirements, not implementation. Claude Code knows how to build plugins. If the agent returns with errors, spawn it again with the error details — do NOT troubleshoot manually with run_command.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "mission": {
                         "type": "string",
-                        "description": "The task/question for the agent to complete. Be specific — this is the agent's only instruction."
+                        "description": "The task/question for the agent to complete. Be specific about WHAT to build but don't write the code — the agent handles implementation."
                     },
                     "agent_type": {
                         "type": "string",
-                        "description": "Type of agent to spawn. MUST call agent_options() first to see available types. Use 'claude_code' for coding/building tasks, 'llm' for research/analysis. Defaults to 'llm'."
+                        "description": "Type of agent to spawn. MUST call agent_options() first to see available types. Use 'claude_code' for general projects, 'claude_code_plugin' for Sapphire plugins, 'llm' for research/analysis."
                     },
                     "model": {
                         "type": "string",
@@ -62,9 +62,21 @@ TOOLS = [
                         "type": "string",
                         "description": "Project/workspace name — only for 'claude_code' type."
                     },
+                    "plugin_name": {
+                        "type": "string",
+                        "description": "Plugin directory name — only for 'claude_code_plugin' type. Created in user/plugins/{name}/."
+                    },
+                    "capabilities": {
+                        "type": "string",
+                        "description": "Comma-separated plugin capabilities — only for 'claude_code_plugin'. Options: tools, hooks, daemon, routes, settings, providers, schedule."
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context for Claude Code — only for 'claude_code_plugin'. Specific requirements like API details, voice formats, settings fields. Don't include generic plugin patterns — Claude Code has access to the docs."
+                    },
                     "session_id": {
                         "type": "string",
-                        "description": "Resume a previous Claude Code session by ID — only for 'claude_code' type."
+                        "description": "Resume a previous Claude Code session by ID — for 'claude_code' and 'claude_code_plugin' types."
                     }
                 },
                 "required": ["mission"]
@@ -443,6 +455,9 @@ def _agent_options(manager, ps):
 
 def _spawn_agent(manager, arguments, ps):
     mission = arguments.get('mission')
+    # For plugin builds, Sapphire often puts the instructions in context instead of mission
+    if not mission and arguments.get('agent_type') == 'claude_code_plugin':
+        mission = arguments.get('context', '') or arguments.get('plugin_name', '')
     if not mission:
         return "Mission is required.", False
 

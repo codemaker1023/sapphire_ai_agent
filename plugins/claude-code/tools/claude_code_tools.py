@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 ENABLED = True
 EMOJI = '\u26a1'
-AVAILABLE_FUNCTIONS = ['code_session', 'build_plugin', 'check_plugin_build', 'activate_plugin']
+AVAILABLE_FUNCTIONS = ['code_session', 'activate_plugin']
 
 TOOLS = [
     {
@@ -18,7 +18,7 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "code_session",
-            "description": "Run a BLOCKING Claude Code session — you wait for it to finish. Call with no arguments to list recent projects/sessions. Call with a mission to start or resume. For anything that takes more than a few seconds, prefer spawn_agent(agent_type='claude_code') via the agents plugin — call agent_options() first to check availability.",
+            "description": "Run a BLOCKING Claude Code session — you wait for it to finish. Call with no arguments to list recent projects/sessions. Call with a mission to start or resume. For anything that takes more than a few seconds, prefer spawn_agent via the agents plugin. Two agent types available: 'claude_code' for general projects (~/claude-workspaces/), 'claude_code_plugin' for building Sapphire plugins (user/plugins/). For plugins, use spawn_agent(agent_type='claude_code_plugin', plugin_name='name') — it auto-injects plugin docs and validates the result.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -43,57 +43,8 @@ TOOLS = [
         "type": "function",
         "is_local": True,
         "function": {
-            "name": "build_plugin",
-            "description": "Build a full Sapphire plugin using Claude Code. Spawns a background agent that creates the plugin in user/plugins/{name}/ with the proper manifest, tools, and any requested capabilities. Use check_plugin_build to monitor progress, then activate_plugin to enable it.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Plugin name (becomes the directory name in user/plugins/)"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "What the plugin should do — be specific about features and behavior"
-                    },
-                    "capabilities": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Plugin capabilities to include: tools, hooks, daemon, routes, settings, providers, schedule. Defaults to ['tools']."
-                    },
-                    "context": {
-                        "type": "string",
-                        "description": "Additional context for Claude Code — API docs, format specs, 'OpenAI-compatible', reference URLs, etc."
-                    }
-                },
-                "required": ["name", "description"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "is_local": True,
-        "function": {
-            "name": "check_plugin_build",
-            "description": "Check the status of a plugin build started with build_plugin. Returns the agent status, validation results, and Claude Code's output.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID returned by build_plugin"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "is_local": True,
-        "function": {
             "name": "activate_plugin",
-            "description": "Activate a plugin built by build_plugin. Runs validation, rescans plugins, and enables the new plugin. Call after check_plugin_build confirms the build succeeded.",
+            "description": "Activate a plugin after it's been built by a claude_code_plugin agent. Runs AST validation, checks the manifest, rescans plugins, and enables the new plugin. Use check_agents first to confirm the build agent completed, then call this with the plugin name.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -148,8 +99,9 @@ def _create_code_worker():
                 self.status = 'failed'
                 return
 
-            coder_instructions = settings.get('coder_instructions', '')
-            _write_claude_md(workspace, coder_instructions, self.project_name)
+            base = settings.get('coder_instructions', '')
+            mode = settings.get('project_instructions', '')
+            _write_claude_md(workspace, base, mode, self.project_name)
 
             if self._cancelled.is_set():
                 self.status = 'cancelled'
@@ -186,6 +138,12 @@ def _create_code_worker():
             lines.append(f"\n**Files:**\n{file_listing}")
             lines.append(f"\n**Result:**\n{result_text}")
 
+            if session_id:
+                lines.append(f"\n**If there are bugs:** Use `spawn_agent(agent_type='claude_code', "
+                             f"project_name='{self.project_name}', session_id='{session_id}')` to resume. "
+                             f"Describe the error so Claude Code can fix it. "
+                             f"Do NOT troubleshoot manually with run_command.")
+
             self.result = '\n'.join(lines)
 
             # Notify frontend about runnable project
@@ -207,7 +165,11 @@ def _create_plugin_worker():
                      plugin_name='', capabilities=None, context=None, session_id='', **kwargs):
             super().__init__(agent_id, name, mission, chat_name, on_complete)
             self.plugin_name = plugin_name or _slugify(mission)
-            self._capabilities = capabilities or ['tools']
+            # Coerce capabilities — LLMs send "providers, settings" as string not list
+            if isinstance(capabilities, str):
+                self._capabilities = [c.strip() for c in capabilities.split(',') if c.strip()]
+            else:
+                self._capabilities = capabilities or ['tools']
             self._context = context
             self._session_id = session_id
             self.tool_log = ['claude-code-plugin']
@@ -229,13 +191,14 @@ def _create_plugin_worker():
                 self.status = 'failed'
                 return
 
-            # Build two-layer CLAUDE.md: base + plugin addendum
-            coder_instructions = settings.get('coder_instructions', '')
+            # Build three-layer CLAUDE.md: base + plugin mode + plugin addendum
+            base = settings.get('coder_instructions', '')
+            mode = settings.get('plugin_instructions', '')
             addendum = _build_plugin_addendum(
                 self.plugin_name, self.mission,
                 self._capabilities, self._context
             )
-            _write_claude_md(workspace, coder_instructions, self.plugin_name, addendum=addendum)
+            _write_claude_md(workspace, base, mode, self.plugin_name, addendum=addendum)
 
             if self._cancelled.is_set():
                 self.status = 'cancelled'
@@ -285,16 +248,32 @@ def _create_plugin_worker():
                 except Exception:
                     pass
 
+            # Add guidance so Sapphire knows what to do next
+            all_passed = all(validation.values())
+            if all_passed:
+                lines.append(f"\n**Next step:** Call `activate_plugin(name='{self.plugin_name}')` to enable it.")
+            else:
+                failed = [k for k, v in validation.items() if not v]
+                lines.append(f"\n**Issues found:** {', '.join(failed)}")
+                lines.append(f"**To fix:** Use `spawn_agent(agent_type='claude_code_plugin', "
+                             f"plugin_name='{self.plugin_name}')` to resume. "
+                             f"Describe the specific error so Claude Code can fix it.")
+                lines.append(f"Do NOT troubleshoot manually with run_command — Claude Code has "
+                             f"the full project context and can fix it faster.")
+
             self.result = '\n'.join(lines)
-            # Store structured validation for the check_plugin_build tool
             self._validation = validation
-            self._all_passed = all(validation.values())
+            self._all_passed = all_passed
 
     return PluginWorker
 
 
 def _validate_plugin(workspace):
-    """Run the validation chain on a built plugin. Returns {check: pass/fail}."""
+    """Structural validation for Claude Code-built plugins.
+
+    No import blocklist — Claude Code is trusted. This checks structure only:
+    manifest shape, file existence, syntax errors.
+    """
     results = {}
 
     # 1. Manifest exists and parses
@@ -307,22 +286,10 @@ def _validate_plugin(workspace):
         results['manifest_valid'] = False
         return results  # can't continue without manifest
 
-    # 2. AST validation on all .py files (moderate — allows subprocess)
-    try:
-        from core.code_validator import validate_plugin_files
-        ok, err = validate_plugin_files(workspace, strictness='moderate')
-        results['ast_check'] = ok
-        if not ok:
-            logger.warning(f"[claude-code] Plugin validation failed: {err}")
-    except Exception as e:
-        results['ast_check'] = False
-        logger.warning(f"[claude-code] Could not run AST validation: {e}")
-
     # Normalize tools — Claude Code sometimes writes a string instead of a list
     tools = manifest.get('capabilities', {}).get('tools', [])
     if isinstance(tools, str):
         tools = [tools]
-        # Auto-fix the manifest on disk so plugin_loader can load it
         manifest['capabilities']['tools'] = tools
         try:
             with open(manifest_path, 'w', encoding='utf-8') as f:
@@ -332,28 +299,29 @@ def _validate_plugin(workspace):
         except Exception:
             pass
 
-    # 3. Tool files exist (if declared)
-    if tools:
-        all_exist = all(os.path.isfile(os.path.join(workspace, t)) for t in tools)
-        results['tool_files_exist'] = all_exist
-    else:
-        results['tool_files_exist'] = True  # no tools declared = pass
+    # 2. Declared files exist
+    all_files_ok = True
+    for tool_rel in tools:
+        if not os.path.isfile(os.path.join(workspace, tool_rel)):
+            all_files_ok = False
+    # Check provider entry if declared
+    providers = manifest.get('capabilities', {}).get('providers', {})
+    for sys_name, prov in providers.items():
+        entry = prov.get('entry', 'provider.py')
+        if not os.path.isfile(os.path.join(workspace, entry)):
+            all_files_ok = False
+    results['files_exist'] = all_files_ok
 
-    # 4. Import test on tool files
-    if tools:
-        import_ok = True
-        for tool_path in tools:
-            full_path = os.path.join(workspace, tool_path)
-            if os.path.isfile(full_path):
-                try:
-                    source = Path(full_path).read_text(encoding='utf-8')
-                    compile(source, full_path, 'exec')
-                except SyntaxError as e:
-                    import_ok = False
-                    logger.warning(f"[claude-code] Syntax error in {tool_path}: {e}")
-        results['syntax_check'] = import_ok
-    else:
-        results['syntax_check'] = True
+    # 3. Syntax check on all .py files (compile only — no import restrictions)
+    syntax_ok = True
+    for py_file in Path(workspace).rglob('*.py'):
+        try:
+            source = py_file.read_text(encoding='utf-8')
+            compile(source, str(py_file), 'exec')
+        except SyntaxError as e:
+            syntax_ok = False
+            logger.warning(f"[claude-code] Syntax error in {py_file.name}: {e}")
+    results['syntax_check'] = syntax_ok
 
     return results
 
@@ -443,35 +411,36 @@ _DEFAULT_CODER_INSTRUCTIONS = """You are a code builder. Write clean, working co
 - If you notice anything noteworthy that isn't part of your task, write it to NOTES.md"""
 
 
-def _build_claude_md(project_name, coder_instructions=None, addendum=None):
-    """Build CLAUDE.md content from base layer + optional mode addendum.
+def _build_claude_md(project_name, base_instructions=None, mode_instructions=None, addendum=None):
+    """Build CLAUDE.md content from base + mode instructions + optional addendum.
 
-    Two-layer prompt system (same pattern as Sapphire's character + scenario prompts):
-      Layer 1 (base): coder_instructions from plugin settings — who you are, how to work
-      Layer 2 (addendum): mode-specific context — what you're building right now
+    Three-layer prompt system:
+      Layer 1 (base): Universal instructions from settings — applies to ALL sessions
+      Layer 2 (mode): Project or plugin specific instructions from settings
+      Layer 3 (addendum): Auto-generated context — plugin docs, task description
 
-    For project mode: addendum is minimal (just the task).
-    For plugin mode: addendum includes plugin-author docs (capability-aware).
+    For project mode: base + project_instructions + task
+    For plugin mode: base + plugin_instructions + plugin docs + task
     """
-    base = coder_instructions or _DEFAULT_CODER_INSTRUCTIONS
+    base = base_instructions or _DEFAULT_CODER_INSTRUCTIONS
 
     parts = [
         f"# {project_name}\n",
         "## Instructions\n",
         base.strip(),
-        "\n\n## Constraints",
-        "- Work only within this directory",
-        "- Do not access files outside the workspace",
-        "- Do not install system-wide packages",
-        "- Test your code before reporting done",
-        "- Keep dependencies minimal",
-        "- For web apps: build as a self-contained `index.html` with inline JS/CSS (no build step, no npm)",
-        "",
-        "Dispatched by Sapphire AI on behalf of the user.",
     ]
 
+    if mode_instructions:
+        parts.append(f"\n\n## Mode-Specific Rules\n")
+        parts.append(mode_instructions.strip())
+
+    parts.append("\n\n## General\n")
+    parts.append("- Work only within this directory")
+    parts.append("- Do not access files outside the workspace")
+    parts.append("- Dispatched by Sapphire AI on behalf of the user.")
+
     if addendum:
-        parts.append("\n---\n")
+        parts.append("\n\n---\n")
         parts.append(addendum)
 
     return '\n'.join(parts)
@@ -482,7 +451,11 @@ def _build_plugin_addendum(plugin_name, description, capabilities=None, context=
 
     Only injects docs for the capabilities the plugin actually needs.
     """
-    caps = capabilities or []
+    # Coerce capabilities to list — LLMs often send "providers, settings" as a string
+    if isinstance(capabilities, str):
+        caps = [c.strip() for c in capabilities.split(',') if c.strip()]
+    else:
+        caps = capabilities or []
     docs_dir = Path(_SAPPHIRE_ROOT) / "docs" / "plugin-author"
 
     parts = [
@@ -502,17 +475,8 @@ def _build_plugin_addendum(plugin_name, description, capabilities=None, context=
     parts.append("3. Run any tests you wrote")
     parts.append("4. Report ALL results in your final message\n")
 
-    # Manifest format reminder — common mistakes
-    parts.append("## CRITICAL Manifest Rules")
-    parts.append("- capabilities.tools MUST be a JSON array: `\"tools\": [\"tools/name_tools.py\"]`")
-    parts.append("- NOT a string. Array even for a single tool file.")
-    parts.append("- capabilities.hooks is a dict: `\"hooks\": {\"pre_chat\": \"hooks/handler.py\"}`\n")
-
-    # Validation warning
-    parts.append("## Validation Warning")
-    parts.append("Your code will be validated by Sapphire's AST checker (moderate strictness).")
-    parts.append("Blocked: eval, exec, __import__, os.system, os.remove, shutil, ctypes, signal, importlib.")
-    parts.append("Allowed: subprocess, requests, json, datetime, re, math, hashlib, sqlite3, etc.\n")
+    # Note: Plugin-specific rules (manifest format, validation, file structure)
+    # are in the plugin_instructions settings textarea — user-editable, not hardcoded here.
 
     # Always inject ai-reference.md — the compact everything reference
     ai_ref = docs_dir / "ai-reference.md"
@@ -579,7 +543,8 @@ def _clean_env():
 
 def _sanity_check(workspace_path):
     ws = str(Path(workspace_path).resolve())
-    if ws.startswith(_SAPPHIRE_ROOT):
+    user_plugins = os.path.join(_SAPPHIRE_ROOT, 'user', 'plugins')
+    if ws.startswith(_SAPPHIRE_ROOT) and not ws.startswith(user_plugins):
         return f"SAFETY: Workspace '{ws}' is inside Sapphire's project directory. Use an external directory."
     for marker in ['/envs/', '/conda', '/.venv/', '/virtualenvs/']:
         if marker in ws.lower():
@@ -607,19 +572,21 @@ def _resolve_workspace(settings, project_name):
     return workspace, None
 
 
-def _write_claude_md(workspace, coder_instructions=None, project_name='project', addendum=None):
+def _write_claude_md(workspace, base_instructions=None, mode_instructions=None,
+                     project_name='project', addendum=None):
     """Write CLAUDE.md into workspace. Skips if already exists (resume case).
 
     Args:
         workspace: Directory path
-        coder_instructions: Base layer from plugin settings (user-customizable)
+        base_instructions: Base layer from settings (universal, all sessions)
+        mode_instructions: Mode layer from settings (project-specific or plugin-specific)
         project_name: Display name for the project
-        addendum: Mode-specific content (plugin docs, task context, etc.)
+        addendum: Auto-generated content (plugin docs, task context)
     """
     claude_md_path = os.path.join(workspace, 'CLAUDE.md')
     if os.path.exists(claude_md_path):
         return
-    content = _build_claude_md(project_name, coder_instructions, addendum)
+    content = _build_claude_md(project_name, base_instructions, mode_instructions, addendum)
     try:
         with open(claude_md_path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -651,6 +618,20 @@ def _build_claude_args(mission, settings, session_id=None, model_override=None):
         args.extend(['--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash,NotebookEdit,WebFetch,WebSearch'])
     else:
         args.extend(['--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash,NotebookEdit'])
+
+    # Give Claude Code read access to plugin docs, reference plugins, and logs
+    docs_dir = os.path.join(_SAPPHIRE_ROOT, 'docs')
+    if os.path.isdir(docs_dir):
+        args.extend(['--add-dir', docs_dir])
+    # Reference plugin — a real working TTS provider Claude Code can study
+    ref_plugin = os.path.join(_SAPPHIRE_ROOT, 'plugins', 'elevenlabs')
+    if os.path.isdir(ref_plugin):
+        args.extend(['--add-dir', ref_plugin])
+    # Sapphire logs — so Claude Code can diagnose runtime errors
+    logs_dir = os.path.join(_SAPPHIRE_ROOT, 'user', 'logs')
+    if os.path.isdir(logs_dir):
+        args.extend(['--add-dir', logs_dir])
+
     return args
 
 
@@ -845,8 +826,9 @@ def _code_session(arguments):
     if safety_err:
         return safety_err, False
 
-    coder_instructions = settings.get('coder_instructions', '')
-    _write_claude_md(workspace, coder_instructions, project_name)
+    base = settings.get('coder_instructions', '')
+    mode = settings.get('project_instructions', '')
+    _write_claude_md(workspace, base, mode, project_name)
 
     args = _build_claude_args(mission, settings, session_id=session_id)
     if _HAS_NAME_FLAG:
@@ -906,76 +888,6 @@ def _publish_workspace_ready(project_name, workspace):
 
 # --- Main dispatch ---
 
-def _build_plugin(arguments):
-    """Spawn a PluginWorker agent to build a plugin."""
-    name = arguments.get('name', '').strip()
-    description = arguments.get('description', '').strip()
-    if not name:
-        return "Plugin name is required.", False
-    if not description:
-        return "Plugin description is required.", False
-
-    capabilities = arguments.get('capabilities', ['tools'])
-    context = arguments.get('context', '').strip() or None
-
-    # Check if plugin dir already exists with content
-    workspace = os.path.join(_SAPPHIRE_ROOT, 'user', 'plugins', name)
-    if os.path.isdir(workspace) and os.listdir(workspace):
-        # Existing plugin — Claude Code will see existing files and can modify
-        pass
-
-    try:
-        from core.agents import agent_manager
-        agent_id = agent_manager.spawn(
-            'claude_code_plugin',
-            mission=description,
-            chat_name='',
-            plugin_name=name,
-            capabilities=capabilities,
-            context=context,
-        )
-        return (
-            f"**Plugin build started.**\n"
-            f"- Plugin: `{name}`\n"
-            f"- Capabilities: {', '.join(capabilities)}\n"
-            f"- Agent: `{agent_id}`\n\n"
-            f"Use `check_plugin_build(agent_id='{agent_id}')` to monitor progress.\n"
-            f"When complete, use `activate_plugin(name='{name}')` to enable it."
-        ), True
-    except Exception as e:
-        return f"Failed to start plugin build: {e}", False
-
-
-def _check_plugin_build(arguments):
-    """Check status of a plugin builder agent."""
-    agent_id = arguments.get('agent_id', '').strip()
-    if not agent_id:
-        return "agent_id is required.", False
-
-    try:
-        from core.agents import agent_manager
-        worker = agent_manager.recall(agent_id)
-        if not worker:
-            return f"Agent `{agent_id}` not found. It may have been dismissed.", False
-
-        status = worker.status
-        lines = [f"**Plugin Build Status: {status}**"]
-
-        if status == 'running':
-            elapsed = time.time() - worker.start_time if hasattr(worker, 'start_time') else 0
-            lines.append(f"- Running for {elapsed:.0f}s")
-            lines.append("- Check again in a moment.")
-        elif status == 'complete':
-            if worker.result:
-                lines.append(worker.result)
-        elif status == 'failed':
-            lines.append(f"- Error: {worker.error}")
-
-        return '\n'.join(lines), True
-    except Exception as e:
-        return f"Error checking build: {e}", False
-
-
 def _activate_plugin(arguments):
     """Validate and activate a built plugin."""
     name = arguments.get('name', '').strip()
@@ -998,7 +910,9 @@ def _activate_plugin(arguments):
     if not all_passed:
         failed = [k for k, v in validation.items() if not v]
         lines.append(f"\n**Cannot activate** — failed checks: {', '.join(failed)}")
-        lines.append("Fix the issues and try again, or use build_plugin to rebuild.")
+        lines.append(f"**To fix:** Use `spawn_agent(agent_type='claude_code_plugin', "
+                     f"plugin_name='{name}')` with the error details in the mission. "
+                     f"Do NOT troubleshoot with run_command.")
         return '\n'.join(lines), False
 
     # Rescan and enable
@@ -1038,9 +952,12 @@ def _activate_plugin(arguments):
         info = plugin_loader.get_plugin_info(name)
         loaded = info.get('loaded', False) if info else False
 
+        # Check if this plugin has providers (needs restart to register)
+        manifest_info = info.get('manifest', {}) if info else {}
+        has_providers = bool(manifest_info.get('capabilities', {}).get('providers'))
+
         lines.append(f"\n**Plugin activated: {name}**")
         if loaded:
-            manifest_info = info.get('manifest', {})
             tool_list = manifest_info.get('capabilities', {}).get('tools', [])
             if isinstance(tool_list, str):
                 tool_list = [tool_list]
@@ -1048,7 +965,16 @@ def _activate_plugin(arguments):
             if tool_list:
                 lines.append(f"- Tool files: {', '.join(tool_list)}")
         else:
-            lines.append(f"- Status: enabled but not loaded (check logs for errors)")
+            lines.append(f"- Status: enabled but not yet loaded")
+
+        if has_providers:
+            lines.append(f"\n**Note:** This plugin provides a TTS/STT/LLM/Embedding provider. "
+                         f"A Sapphire restart is needed for the provider to appear in settings. "
+                         f"Tell the user: 'The plugin is ready — restart Sapphire to activate the provider.'")
+
+        lines.append(f"\nIf there are runtime bugs after activation, use "
+                     f"`spawn_agent(agent_type='claude_code_plugin', plugin_name='{name}')` "
+                     f"to fix them. Do NOT troubleshoot with run_command.")
 
         return '\n'.join(lines), True
     except Exception as e:
@@ -1060,10 +986,6 @@ def execute(function_name, arguments, config):
     try:
         if function_name == 'code_session':
             return _code_session(arguments)
-        elif function_name == 'build_plugin':
-            return _build_plugin(arguments)
-        elif function_name == 'check_plugin_build':
-            return _check_plugin_build(arguments)
         elif function_name == 'activate_plugin':
             return _activate_plugin(arguments)
         else:
