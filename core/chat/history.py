@@ -1211,11 +1211,13 @@ class ChatSessionManager:
                         msg['timestamp'] = timestamp
                     messages.append(msg)
 
-                conn.execute(
+                result = conn.execute(
                     """UPDATE chats SET messages = ?, updated_at = ? WHERE name = ?""",
                     (json.dumps(messages), timestamp, chat_name)
                 )
                 conn.commit()
+                if result.rowcount == 0:
+                    logger.warning(f"Chat '{chat_name}' was deleted during append — messages lost")
                 logger.debug(f"Appended {len(new_messages)} messages to chat '{chat_name}'")
 
                 # If this is the active chat, sync in-memory list

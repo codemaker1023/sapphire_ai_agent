@@ -941,13 +941,11 @@ def _activate_plugin(arguments):
                 enabled_path.parent.mkdir(parents=True, exist_ok=True)
                 enabled_path.write_text(json.dumps(enabled_data, indent=2), encoding='utf-8')
 
-            # Reload to actually load the plugin
-            try:
-                plugin_loader.reload_plugin(name)
-            except Exception:
-                # First load — need to mark enabled and re-scan
+            # Mark enabled in memory BEFORE reload — rescan set it False
+            # because plugins.json wasn't written yet when rescan read it
+            if name in plugin_loader._plugins:
                 plugin_loader._plugins[name]['enabled'] = True
-                plugin_loader._load_plugin(name)
+            plugin_loader.reload_plugin(name)
 
         info = plugin_loader.get_plugin_info(name)
         loaded = info.get('loaded', False) if info else False

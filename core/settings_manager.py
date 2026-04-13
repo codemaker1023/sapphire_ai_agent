@@ -183,7 +183,8 @@ class SettingsManager:
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(nested, f, indent=2)
             tmp_path.replace(user_path)
-            self._update_mtime()  # Prevent file watcher from re-triggering
+            # Update mtime immediately — no gap for file watcher
+            self._last_mtime = user_path.stat().st_mtime
             logger.info(f"[SETTINGS] Migration persisted to disk")
         except Exception as e:
             logger.error(f"[SETTINGS] Failed to persist migration: {e}")
@@ -427,8 +428,9 @@ class SettingsManager:
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(nested, f, indent=2)
             tmp_path.replace(user_path)
-
-            self._update_mtime()
+            # Update mtime IMMEDIATELY after rename — no gap for the file watcher
+            # to see a new mtime before _last_mtime is updated (fixes spurious reloads)
+            self._last_mtime = user_path.stat().st_mtime
             logger.info(f"Saved user settings to {user_path}")
             return True
         except Exception as e:
@@ -509,8 +511,7 @@ class SettingsManager:
                 with open(tmp_path, 'w', encoding='utf-8') as f:
                     json.dump({"_comment": "Your custom settings - edit freely or use web UI"}, f, indent=2)
                 tmp_path.replace(user_path)
-                
-                self._update_mtime()
+                self._last_mtime = user_path.stat().st_mtime
                 logger.info("Settings reset to defaults")
                 return True
             except Exception as e:
@@ -785,7 +786,7 @@ class SettingsManager:
                 with open(tmp_path, 'w', encoding='utf-8') as f:
                     json.dump(nested, f, indent=2)
                 tmp_path.replace(user_path)
-                self._update_mtime()
+                self._last_mtime = user_path.stat().st_mtime
                 logger.debug(f"Removed '{key}' from settings file")
         except Exception as e:
             logger.error(f"Failed to remove key from file: {e}")

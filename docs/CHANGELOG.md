@@ -1,4 +1,9 @@
-
+# 2.5.8 - Agents upgrade (Claude Code)
+- Claude Code has plugin agent
+- Plugin agent supercedes toolmaker (if Claude Code is present)
+- Added tools/ask-sapphire.sh for Claude Code
+- Added tools/malbolge.py for 5x simultaneous persona triggers
+- Added examples for plugins for Claude Code
 # 2.5.7 - pytest expansions
 - from 30% coverage to 45%
 - basic route tests

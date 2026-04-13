@@ -258,8 +258,16 @@ class ExecutionContext:
             last = messages[-1]
             if last.get("role") == "assistant" and last.get("content"):
                 final_content = last["content"]
+            else:
+                # Loop exhausted via tool calls or empty response — synthesize a final message
+                # so the conversation isn't left with an orphaned user turn
+                final_content = "(No response — tool loop exhausted or LLM returned empty)"
+                messages.append({"role": "assistant", "content": final_content})
 
-        # Expose all messages generated during this run (user + tool calls + tool results + final)
-        self.new_messages = messages[msg_start_idx:]
+        # Expose messages generated during this run. Only include if we got a response —
+        # an orphaned user message with no assistant reply corrupts chat history.
+        new = messages[msg_start_idx:]
+        has_assistant = any(m.get("role") == "assistant" for m in new)
+        self.new_messages = new if has_assistant else []
 
         return final_content or ""
