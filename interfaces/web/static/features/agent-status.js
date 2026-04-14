@@ -244,7 +244,14 @@ async function drainAgentReport() {
         const savedText = input?.value || '';
 
         const { triggerSendWithText } = await import('../handlers/send-handlers.js');
-        await triggerSendWithText(report);
+        const sent = await triggerSendWithText(report);
+        if (!sent) {
+            // triggerSendWithText silently no-ops when a stream started during
+            // our await chain. Don't clear pending — let ai_typing_end / safety
+            // net / chat-switch handlers retry the drain.
+            console.log('[Agents] triggerSendWithText no-oped (Sapphire streaming) — keeping report queued for retry');
+            return;
+        }
 
         // Only clear after successful send
         pendingAgentReport = null;

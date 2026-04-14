@@ -70,20 +70,38 @@ class BaseWorker:
             self.error = str(e)
         finally:
             self._end_time = time.time()
-            publish(Events.AGENT_COMPLETED, {
-                'id': self.id,
-                'name': self.name,
-                'status': self.status,
-                'elapsed': self.elapsed,
-                'result': self.result,
-                'error': self.error,
-                'agent_type': getattr(self, 'tool_log', ['unknown'])[0],
-            })
+            # Guard every step of post-run cleanup — any exception here kills
+            # the thread silently and prevents _on_complete (batch fire) from
+            # ever running, which hides the completion from everything
+            # downstream. This was a real bug: `getattr(self, 'tool_log',
+            # ['unknown'])[0]` blew up with IndexError because tool_log is
+            # initialized to [], making `getattr` return [] (the attribute
+            # exists) and `[0]` then throwing.
+            try:
+                publish(Events.AGENT_COMPLETED, {
+                    'id': self.id,
+                    'name': self.name,
+                    'status': self.status,
+                    'elapsed': self.elapsed,
+                    'result': self.result,
+                    'error': self.error,
+                    'agent_type': getattr(self, '_agent_type', 'unknown'),
+                })
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"Agent {self.name}: publish AGENT_COMPLETED raised: {e}",
+                    exc_info=True,
+                )
             if self._on_complete:
                 try:
                     self._on_complete(self.id, self.chat_name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        f"Agent {self.name}: on_complete raised: {e}",
+                        exc_info=True,
+                    )
 
     def run(self):
         """Override this in subclasses. Set self.result on success, self.error on failure."""
