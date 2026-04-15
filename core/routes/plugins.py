@@ -441,20 +441,33 @@ async def install_plugin(
     tmp_dir = None
     try:
         # ── Download or receive zip ──
+        url_install_method = None  # 'github_url' | 'zip_url' (set below)
         if url:
             import requests as req
-            # Parse GitHub URL → zip download
-            m = re.match(r'https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$', url.strip())
-            if not m:
-                raise HTTPException(status_code=400, detail="Invalid GitHub URL format")
-            owner, repo = m.group(1), m.group(2)
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
-            r = req.get(zip_url, stream=True, timeout=30)
-            if r.status_code == 404:
-                zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/master.zip"
+            clean_url = url.strip()
+            # Direct .zip URL — undocumented fallback for plugin authors without
+            # a reachable GitHub. Downstream validation (zip structure, manifest,
+            # signing gate) catches bad content.
+            if clean_url.lower().endswith('.zip') and clean_url.startswith(('http://', 'https://')):
+                zip_url = clean_url
+                url_install_method = 'zip_url'
                 r = req.get(zip_url, stream=True, timeout=30)
-            if r.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Failed to download from GitHub (HTTP {r.status_code})")
+                if r.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Failed to download zip (HTTP {r.status_code})")
+            else:
+                # Parse GitHub URL → zip download
+                m = re.match(r'https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$', clean_url)
+                if not m:
+                    raise HTTPException(status_code=400, detail="Invalid GitHub URL format")
+                owner, repo = m.group(1), m.group(2)
+                zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+                url_install_method = 'github_url'
+                r = req.get(zip_url, stream=True, timeout=30)
+                if r.status_code == 404:
+                    zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/master.zip"
+                    r = req.get(zip_url, stream=True, timeout=30)
+                if r.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Failed to download from GitHub (HTTP {r.status_code})")
             content_length = int(r.headers.get("Content-Length", 0))
             if content_length > MAX_ZIP_SIZE:
                 raise HTTPException(status_code=400, detail=f"Zip too large ({content_length // 1024 // 1024}MB, max 50MB)")
@@ -602,7 +615,7 @@ async def install_plugin(
         state = plugin_loader.get_plugin_state(name)
         if url:
             state.save("installed_from", url.strip())
-            state.save("install_method", "github_url")
+            state.save("install_method", url_install_method or "github_url")
         else:
             state.save("install_method", "zip_upload")
         state.save("installed_at", datetime.utcnow().isoformat() + "Z")
