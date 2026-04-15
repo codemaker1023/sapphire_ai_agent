@@ -214,6 +214,21 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
                     if new_state:
                         with plugin_loader._lock:
                             plugin_loader._plugins[plugin_name]["enabled"] = True
+                        # Re-verify signature on toggle-on — files may have been
+                        # tampered between the original scan and now (e.g. user
+                        # disabled, edited plugin.json, re-enabled). Mirrors
+                        # the re-verify reload_plugin already does.
+                        try:
+                            from core.plugin_verify import verify_plugin
+                            from pathlib import Path as _Path
+                            plugin_path = _Path(plugin_loader._plugins[plugin_name]["path"])
+                            verified, verify_msg, verify_meta = verify_plugin(plugin_path)
+                            with plugin_loader._lock:
+                                plugin_loader._plugins[plugin_name]["verified"] = verified
+                                plugin_loader._plugins[plugin_name]["verify_msg"] = verify_msg
+                                plugin_loader._plugins[plugin_name]["verified_author"] = verify_meta.get("author")
+                        except Exception as _verr:
+                            logger.warning(f"[PLUGINS] toggle re-verify failed for {plugin_name}: {_verr}")
                         loaded = plugin_loader._load_plugin(plugin_name)
                         if not loaded:
                             # Blocked by verification — revert enabled list
@@ -447,8 +462,21 @@ async def install_plugin(
             clean_url = url.strip()
             # Direct .zip URL — undocumented fallback for plugin authors without
             # a reachable GitHub. Downstream validation (zip structure, manifest,
-            # signing gate) catches bad content.
-            if clean_url.lower().endswith('.zip') and clean_url.startswith(('http://', 'https://')):
+            # signing gate) catches bad content. Two guards here against SSRF:
+            # require https:// (no plain http) and reject obvious localhost
+            # variants. Doesn't catch DNS rebinding or redirect-to-localhost,
+            # but the realistic attack surface for a single-user app is small.
+            if clean_url.lower().endswith('.zip') and clean_url.startswith('https://'):
+                _lower = clean_url.lower()
+                if any(bad in _lower for bad in (
+                    '://localhost', '://127.', '://0.0.0.0', '://169.254.',
+                    '://[::1]', '://10.', '://192.168.', '://172.16.', '://172.17.',
+                    '://172.18.', '://172.19.', '://172.20.', '://172.21.',
+                    '://172.22.', '://172.23.', '://172.24.', '://172.25.',
+                    '://172.26.', '://172.27.', '://172.28.', '://172.29.',
+                    '://172.30.', '://172.31.',
+                )):
+                    raise HTTPException(status_code=400, detail="Refusing to fetch from localhost / private IP range")
                 zip_url = clean_url
                 url_install_method = 'zip_url'
                 r = req.get(zip_url, stream=True, timeout=30)

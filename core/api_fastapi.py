@@ -464,7 +464,12 @@ def _apply_chat_settings(system, settings: dict):
         logger.error(f"Error applying prompt settings: {e}")
 
     try:
-        from core.chat.function_manager import apply_scopes_from_settings
+        # Reset before apply so scopes not present in this chat's settings fall
+        # back to defaults instead of inheriting the previous chat's values.
+        # Matches the pattern used in chat.py, chat_streaming.py, and
+        # continuity/execution_context.py.
+        from core.chat.function_manager import apply_scopes_from_settings, reset_scopes
+        reset_scopes()
         apply_scopes_from_settings(system.llm_chat.function_manager, settings)
     except Exception as e:
         logger.error(f"Error applying scope settings: {e}")

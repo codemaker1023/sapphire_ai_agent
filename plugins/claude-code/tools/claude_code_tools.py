@@ -264,6 +264,15 @@ def _create_plugin_worker():
             self.result = '\n'.join(lines)
             self._validation = validation
             self._all_passed = all_passed
+            # If validation failed, mark the agent failed so the batch report's
+            # ✓/✗ icon honestly reflects build state. The result body already
+            # describes which checks failed; this just stops Sapphire's LLM from
+            # glancing at ✓ and missing the "Issues found" text.
+            if not all_passed:
+                self.status = 'failed'
+                self.error = 'plugin validation failed: ' + ', '.join(
+                    k for k, v in validation.items() if not v
+                )
 
     return PluginWorker
 
@@ -688,7 +697,13 @@ def _run_claude(args, workspace, timeout_minutes=30):
                 except json.JSONDecodeError:
                     continue
         else:
-            return {'result': result.stdout.strip(), 'session_id': None}, None
+            # No parseable JSON anywhere in stdout — treat as failure rather
+            # than silently presenting raw text as a "successful" structured
+            # result. Caller relies on err=None meaning "claude returned
+            # well-formed output"; honoring that contract avoids downstream
+            # validation chains accepting garbage.
+            tail = (result.stdout or '').strip()[-500:]
+            return None, f"Claude Code returned no parseable JSON output (last 500 chars: {tail!r})"
     return data, None
 
 

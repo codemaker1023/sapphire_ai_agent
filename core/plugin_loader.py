@@ -46,7 +46,24 @@ class PluginState:
             try:
                 return json.loads(self._path.read_text(encoding="utf-8"))
             except Exception as e:
-                logger.warning(f"[PLUGIN-STATE] Failed to load {self._path}: {e}")
+                # Quarantine the corrupted file before returning empty dict —
+                # otherwise the next save() silently overwrites whatever was
+                # salvageable (often the only copy of plugin auth/state).
+                from datetime import datetime
+                quarantine = self._path.with_suffix(
+                    f'.json.bad-{datetime.utcnow().strftime("%Y%m%dT%H%M%S")}'
+                )
+                try:
+                    self._path.rename(quarantine)
+                    logger.error(
+                        f"[PLUGIN-STATE] Corrupted state file for '{self._name}': {e}. "
+                        f"Quarantined to {quarantine.name}; starting with empty state."
+                    )
+                except Exception as rename_err:
+                    logger.error(
+                        f"[PLUGIN-STATE] Corrupted {self._path}: {e}. "
+                        f"Could not quarantine ({rename_err}); next save will overwrite."
+                    )
         return {}
 
     def _save(self):

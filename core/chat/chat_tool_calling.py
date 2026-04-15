@@ -332,12 +332,21 @@ class ToolCallingEngine:
         function_name = function_call_data["function_call"]["name"]
         function_args = function_call_data["function_call"]["arguments"]
 
+        # Some text-based-tool-call providers deliver `arguments` as an already-
+        # JSON-encoded string; others as a dict. json.dumps on a string would
+        # double-encode (writes `"\"{...}\""` to history), bricking the chat
+        # for strict providers on the next turn. Honor whatever the LLM gave us.
+        if isinstance(function_args, str):
+            args_json = function_args
+        else:
+            args_json = json.dumps(function_args)
+
         tool_calls_formatted = [{
             "id": tool_call_id,
             "type": "function",
             "function": {
                 "name": function_name,
-                "arguments": json.dumps(function_args)
+                "arguments": args_json
             }
         }]
         
