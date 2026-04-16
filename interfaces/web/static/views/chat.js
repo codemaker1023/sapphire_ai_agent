@@ -121,6 +121,12 @@ export default {
         // Refresh spice dropdown when spice sets change
         eventBus.on(eventBus.Events.SPICE_CHANGED, () => loadSidebar());
 
+        // Refresh sidebar scope dropdowns when scopes are created/deleted in
+        // the Mind view. Without this, users see stale options until a full
+        // page refresh — or worse, select a scope in the sidebar that the
+        // backend no longer knows about and silently fall through to 'default'.
+        eventBus.on('scope_changed', () => loadSidebar());
+
         // Refresh sidebar (incl. scope dropdowns) when a plugin is toggled.
         // Plugin scopes are only shown when the owning plugin is enabled, so a
         // toggle changes which dropdowns should be visible. Also refreshes init

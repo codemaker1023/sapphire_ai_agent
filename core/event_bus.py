@@ -213,6 +213,11 @@ class Events:
     SPICE_CHANGED = "spice_changed"
     SETTINGS_CHANGED = "settings_changed"
     CHAT_SETTINGS_CHANGED = "chat_settings_changed"
+    # Scope CRUD — fired when memory/knowledge/goal/people scopes are created or
+    # deleted, so the chat sidebar can refresh its dropdowns without a page
+    # reload. Payload: {kind: "memory"|"knowledge"|"goal"|"people", action:
+    # "created"|"deleted", name: "<scope_name>"}.
+    SCOPE_CHANGED = "scope_changed"
     
     # Context threshold events
     CONTEXT_WARNING = "context_warning"    # 80% threshold

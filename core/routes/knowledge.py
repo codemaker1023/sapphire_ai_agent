@@ -62,6 +62,8 @@ async def create_memory_scope(request: Request, _=Depends(require_login)):
     if not name or not re.match(r'^[a-z0-9_]{1,32}$', name):
         raise HTTPException(status_code=400, detail="Invalid scope name")
     if memory.create_scope(name):
+        from core.event_bus import publish, Events
+        publish(Events.SCOPE_CHANGED, {"kind": "memory", "action": "created", "name": name})
         return {"created": name}
     else:
         raise HTTPException(status_code=500, detail="Failed to create scope")
@@ -77,6 +79,8 @@ async def delete_memory_scope(scope_name: str, request: Request, _=Depends(requi
     result = memory.delete_scope(scope_name)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    from core.event_bus import publish, Events
+    publish(Events.SCOPE_CHANGED, {"kind": "memory", "action": "deleted", "name": scope_name})
     return result
 
 
@@ -102,6 +106,8 @@ async def create_goal_scope(request: Request, _=Depends(require_login)):
     if not name or not re.match(r'^[a-z0-9_]{1,32}$', name):
         raise HTTPException(status_code=400, detail="Invalid scope name")
     if goals.create_scope(name):
+        from core.event_bus import publish, Events
+        publish(Events.SCOPE_CHANGED, {"kind": "goal", "action": "created", "name": name})
         return {"created": name}
     else:
         raise HTTPException(status_code=500, detail="Failed to create scope")
@@ -116,6 +122,8 @@ async def remove_goal_scope(scope_name: str, request: Request, _=Depends(require
     result = goals.delete_scope(scope_name)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    from core.event_bus import publish, Events
+    publish(Events.SCOPE_CHANGED, {"kind": "goal", "action": "deleted", "name": scope_name})
     return result
 
 
@@ -214,6 +222,8 @@ async def create_knowledge_scope(request: Request, _=Depends(require_login)):
     if not name or not _re.match(r'^[a-z0-9_]{1,32}$', name):
         raise HTTPException(status_code=400, detail="Invalid scope name")
     if knowledge.create_scope(name):
+        from core.event_bus import publish, Events
+        publish(Events.SCOPE_CHANGED, {"kind": "knowledge", "action": "created", "name": name})
         return {"created": name}
     else:
         raise HTTPException(status_code=500, detail="Failed to create scope")
@@ -229,6 +239,8 @@ async def delete_knowledge_scope(scope_name: str, request: Request, _=Depends(re
     result = knowledge.delete_scope(scope_name)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    from core.event_bus import publish, Events
+    publish(Events.SCOPE_CHANGED, {"kind": "knowledge", "action": "deleted", "name": scope_name})
     return result
 
 
@@ -246,6 +258,8 @@ async def create_people_scope(request: Request, _=Depends(require_login)):
     if not name or len(name) > 32:
         raise HTTPException(status_code=400, detail="Invalid scope name")
     knowledge.create_people_scope(name)
+    from core.event_bus import publish, Events
+    publish(Events.SCOPE_CHANGED, {"kind": "people", "action": "created", "name": name})
     return {"created": name}
 
 
@@ -258,6 +272,8 @@ async def remove_people_scope(scope_name: str, request: Request, _=Depends(requi
     result = knowledge.delete_people_scope(scope_name)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    from core.event_bus import publish, Events
+    publish(Events.SCOPE_CHANGED, {"kind": "people", "action": "deleted", "name": scope_name})
     return result
 
 
