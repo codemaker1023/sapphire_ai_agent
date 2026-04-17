@@ -72,7 +72,8 @@ def _create_code_worker():
         def __init__(self, agent_id, name, mission, chat_name='', on_complete=None,
                      project_name='', session_id='', **kwargs):
             super().__init__(agent_id, name, mission, chat_name, on_complete)
-            self.project_name = project_name or _slugify(mission)
+            # Sanitize project_name — prevents path traversal via LLM-supplied arg
+            self.project_name = _safe_dir_name(project_name) if project_name else _slugify(mission)
             self._session_id = session_id
             self.tool_log = ['claude-code']
 
@@ -164,7 +165,8 @@ def _create_plugin_worker():
         def __init__(self, agent_id, name, mission, chat_name='', on_complete=None,
                      plugin_name='', capabilities=None, context=None, session_id='', **kwargs):
             super().__init__(agent_id, name, mission, chat_name, on_complete)
-            self.plugin_name = plugin_name or _slugify(mission)
+            # Sanitize plugin_name — prevents path traversal via LLM-supplied arg
+            self.plugin_name = _safe_dir_name(plugin_name) if plugin_name else _slugify(mission)
             # Coerce capabilities — LLMs send "providers, settings" as string not list
             if isinstance(capabilities, str):
                 self._capabilities = [c.strip() for c in capabilities.split(',') if c.strip()]
@@ -176,7 +178,17 @@ def _create_plugin_worker():
 
         def run(self):
             settings = _get_settings()
-            workspace = os.path.join(_SAPPHIRE_ROOT, 'user', 'plugins', self.plugin_name)
+            # Defense-in-depth: resolve + assert under user/plugins base (plugin_name
+            # is already sanitized in __init__, this catches any future regression)
+            plugins_base = Path(_SAPPHIRE_ROOT) / 'user' / 'plugins'
+            workspace_path = (plugins_base / self.plugin_name).resolve()
+            try:
+                workspace_path.relative_to(plugins_base.resolve())
+            except ValueError:
+                self.error = f"Invalid plugin_name (path escape rejected): {self.plugin_name!r}"
+                self.status = 'failed'
+                return
+            workspace = str(workspace_path)
 
             # Resume: resolve workspace from saved session
             if self._session_id:
@@ -623,10 +635,26 @@ def _slugify(text, max_len=40):
     return slug[:max_len] or 'project'
 
 
+def _safe_dir_name(text, default='project'):
+    """Filesystem-safe directory name. Preserves hyphens/underscores, blocks path traversal.
+    Strips anything that isn't alnum/hyphen/underscore and forces start with alnum."""
+    if not text:
+        return default
+    cleaned = re.sub(r'[^a-zA-Z0-9_-]', '', str(text)).lower().lstrip('-_')[:64]
+    return cleaned or default
+
+
 def _resolve_workspace(settings, project_name):
     base = settings.get('workspace_dir', '~/claude-workspaces')
-    base = os.path.expanduser(base)
-    workspace = os.path.join(base, project_name)
+    base_path = Path(os.path.expanduser(base)).resolve()
+    safe = _safe_dir_name(project_name)
+    workspace_path = (base_path / safe).resolve()
+    # Defense-in-depth: reject any escape from base even if _safe_dir_name is somehow bypassed
+    try:
+        workspace_path.relative_to(base_path)
+    except ValueError:
+        return None, f"Invalid project name (path escape rejected): {project_name!r}"
+    workspace = str(workspace_path)
     try:
         os.makedirs(workspace, exist_ok=True)
     except OSError as e:

@@ -488,7 +488,10 @@ async def install_plugin(
                     raise HTTPException(status_code=400, detail="Refusing to fetch from localhost / private IP range")
                 zip_url = clean_url
                 url_install_method = 'zip_url'
-                r = req.get(zip_url, stream=True, timeout=30)
+                # allow_redirects=False — a 302 from an attacker's https URL to an
+                # internal http://127.0.0.1:... would otherwise bypass the localhost
+                # and https-only SSRF guards above.
+                r = req.get(zip_url, stream=True, timeout=30, allow_redirects=False)
                 if r.status_code != 200:
                     raise HTTPException(status_code=400, detail=f"Failed to download zip (HTTP {r.status_code})")
             else:
@@ -499,10 +502,19 @@ async def install_plugin(
                 owner, repo = m.group(1), m.group(2)
                 zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
                 url_install_method = 'github_url'
-                r = req.get(zip_url, stream=True, timeout=30)
+                # GitHub serves the zip via 302 -> codeload.github.com; explicit allowlist.
+                r = req.get(zip_url, stream=True, timeout=30, allow_redirects=False)
+                if r.status_code in (301, 302, 303, 307, 308):
+                    loc = r.headers.get('Location', '')
+                    if loc.startswith('https://codeload.github.com/'):
+                        r = req.get(loc, stream=True, timeout=30, allow_redirects=False)
                 if r.status_code == 404:
                     zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/master.zip"
-                    r = req.get(zip_url, stream=True, timeout=30)
+                    r = req.get(zip_url, stream=True, timeout=30, allow_redirects=False)
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        loc = r.headers.get('Location', '')
+                        if loc.startswith('https://codeload.github.com/'):
+                            r = req.get(loc, stream=True, timeout=30, allow_redirects=False)
                 if r.status_code != 200:
                     raise HTTPException(status_code=400, detail=f"Failed to download from GitHub (HTTP {r.status_code})")
             content_length = int(r.headers.get("Content-Length", 0))
