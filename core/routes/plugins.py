@@ -240,17 +240,12 @@ async def toggle_plugin(plugin_name: str, request: Request, _=Depends(require_lo
                             logger.warning(f"[PLUGINS] toggle re-verify failed for {plugin_name}: {_verr}")
                         loaded = plugin_loader._load_plugin(plugin_name)
                         if not loaded:
-                            # Blocked by verification — revert enabled list
+                            # Load failed (verification/deps). Leave plugins.json
+                            # alone — user intent (enabled) survives so a fix +
+                            # restart reactivates automatically. In-memory state
+                            # reflects reality so UI shows plugin as off.
                             with plugin_loader._lock:
                                 plugin_loader._plugins[plugin_name]["enabled"] = False
-                            if plugin_name in enabled:
-                                enabled.remove(plugin_name)
-                            user_data["enabled"] = enabled
-                            tmp_path = USER_PLUGINS_JSON.with_suffix('.tmp')
-                            with open(tmp_path, 'w', encoding='utf-8') as f:
-                                json.dump(user_data, f, indent=2)
-                            tmp_path.replace(USER_PLUGINS_JSON)
-                            with plugin_loader._lock:
                                 verify_msg = plugin_loader._plugins[plugin_name].get("verify_msg", "unknown")
                             if "unsigned" in verify_msg:
                                 detail = "Unsigned plugin — enable 'Allow Unsigned Plugins' first"

@@ -175,14 +175,17 @@ class PluginLoader:
                 if self._load_plugin(name):
                     loaded += 1
                 else:
-                    # Plugin failed to load (unsigned, tampered, validation fail) — disable it
+                    # Plugin failed verification/load. Mark in-memory enabled=False
+                    # so UI and toolset registration reflect reality. DO NOT remove
+                    # from user's enabled list on disk — user intent survives
+                    # temporary failures (e.g. signing regressions, missing deps).
+                    # Next restart with the underlying issue fixed = loads clean,
+                    # no UI click needed.
                     info["enabled"] = False
                     blocked.append(name)
 
-        # Clean up enabled list on disk for blocked plugins
         if blocked:
-            self._remove_from_enabled_list(blocked)
-            logger.info(f"[PLUGINS] Blocked plugins auto-disabled: {blocked}")
+            logger.warning(f"[PLUGINS] Enabled but blocked (intent preserved, retry next restart): {blocked}")
 
         logger.info(f"[PLUGINS] Scan complete: {len(self._plugins)} found, {loaded} loaded")
 
@@ -1090,10 +1093,10 @@ class PluginLoader:
                     if self._load_plugin(name):
                         logger.info(f"[PLUGINS] Rescan: loaded new plugin '{name}'")
                     else:
-                        # Failed verification — disable so UI reflects reality
+                        # Failed verification — mark in-memory False but preserve
+                        # enabled list on disk so user intent survives.
                         self._plugins[name]["enabled"] = False
-                        self._remove_from_enabled_list([name])
-                        logger.warning(f"[PLUGINS] Rescan: plugin '{name}' failed to load, auto-disabled")
+                        logger.warning(f"[PLUGINS] Rescan: plugin '{name}' enabled but blocked (retry next restart)")
 
         # Reload plugins whose manifests changed on disk (outside lock to avoid deadlock)
         for rname in needs_reload:
