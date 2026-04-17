@@ -54,6 +54,9 @@ class BaseWorker:
         if self.status == 'running':
             self.status = 'cancelled'
             self._end_time = time.time()
+        # Clear result so recall() doesn't return partial output for a
+        # dismissed agent. User said "I don't want this" — honor that.
+        self.result = None
 
     def _run_wrapper(self):
         from core.event_bus import publish, Events
@@ -61,6 +64,9 @@ class BaseWorker:
             self.run()
             if self._cancelled.is_set():
                 self.status = 'cancelled'
+                # Cancellation voids the result — run() may have finished
+                # between cancel() firing and its check, leaving stale output
+                self.result = None
             elif self.status == 'running':
                 self.status = 'done'
         except Exception as e:

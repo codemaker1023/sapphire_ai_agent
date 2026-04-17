@@ -76,7 +76,11 @@ def _create_code_worker():
             self.project_name = _safe_dir_name(project_name) if project_name else _slugify(mission)
             self._session_id = session_id
             self._proc = None  # populated by _run_claude; cancel() kills it
-            self.tool_log = ['claude-code']
+            # tool_log populated by _run_claude once the subprocess actually
+            # starts — init empty so a cancel-at-start agent doesn't report
+            # 'Tools called: claude-code' for work that never happened.
+            self.tool_log = []
+            self._tool_label = 'claude-code'
 
         def cancel(self):
             super().cancel()
@@ -183,7 +187,10 @@ def _create_plugin_worker():
                 self._capabilities = capabilities or ['tools']
             self._context = context
             self._session_id = session_id
-            self.tool_log = ['claude-code-plugin']
+            # tool_log populated by _run_claude once the subprocess actually
+            # starts — init empty so cancel-at-start doesn't claim tools ran.
+            self.tool_log = []
+            self._tool_label = 'claude-code-plugin'
 
         def cancel(self):
             super().cancel()
@@ -812,8 +819,13 @@ def _run_claude(args, workspace, timeout_minutes=30, worker=None):
         proc = subprocess.Popen(args, **popen_kwargs)
         # Expose proc to worker so cancel()/shutdown can kill it instead of
         # orphaning the claude subprocess when Sapphire is asked to stop.
+        # Also record tool_log now that the subprocess actually started —
+        # init was empty so cancel-at-start doesn't falsely claim work ran.
         if worker is not None:
             worker._proc = proc
+            label = getattr(worker, '_tool_label', 'claude-code')
+            if label and label not in worker.tool_log:
+                worker.tool_log.append(label)
         try:
             stdout, stderr = proc.communicate(timeout=timeout_sec)
         except subprocess.TimeoutExpired:

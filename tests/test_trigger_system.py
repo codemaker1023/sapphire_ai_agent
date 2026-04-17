@@ -369,10 +369,13 @@ class TestExecutorEventData:
     """Test that executor formats event data and passes to ExecutionContext."""
 
     def test_event_data_formatted(self):
-        """Event data with 'text' field should be formatted as clean message."""
+        """Event data with 'text' field should be formatted as clean message.
+        Output now also includes a leading 'Current time: ...' line so the LLM
+        has temporal context — assert structure rather than exact equality."""
         from core.continuity.executor import ContinuityExecutor
         result = ContinuityExecutor._format_event_data('{"first_name": "Bob", "text": "hello"}')
-        assert result == ">>> Bob: hello"
+        assert result.startswith("Current time: "), f"missing time prefix: {result!r}"
+        assert result.endswith(">>> Bob: hello"), f"missing sender/message: {result!r}"
 
     def test_event_data_raw_passthrough(self):
         """Event data without 'text' field passes through as-is."""

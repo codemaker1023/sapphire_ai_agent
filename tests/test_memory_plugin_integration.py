@@ -84,6 +84,15 @@ def isolated_memory_loader(tmp_path, monkeypatch):
     import config
     monkeypatch.setattr(config, "ALLOW_UNSIGNED_PLUGINS", True, raising=False)
 
+    # Snapshot SCOPE_REGISTRY before the test. unload_plugin() calls
+    # unregister_plugin_scope() for every scope the plugin manifest declares
+    # (memory/goal/knowledge/people), which leaks into the global dict and
+    # breaks test_scope_registry's "all expected scopes present" check.
+    # Preserve the actual entry dicts so ContextVar identity survives for
+    # other tests that imported `scope_memory` etc. at module load time.
+    from core.chat.function_manager import SCOPE_REGISTRY
+    _scope_snapshot = dict(SCOPE_REGISTRY)
+
     loader = PluginLoader()
     fm = FunctionManager()
 
@@ -93,6 +102,19 @@ def isolated_memory_loader(tmp_path, monkeypatch):
     for key in list(sys.modules.keys()):
         if key.startswith("plugins.memory.tools."):
             sys.modules.pop(key, None)
+
+    # Restore SCOPE_REGISTRY to the pre-yield state. Critically, we restore
+    # EVERY key from the snapshot — reload_plugin() does unregister+register,
+    # which pops and then creates a brand-new ContextVar under the same key.
+    # If we only restored missing keys, tests that import scope_memory at
+    # module level would keep their old var reference while the registry
+    # points at a new one, and mgr.set_scope('memory', x) would set the new
+    # var while scope_memory.get() reads the old — divergence.
+    for _k, _v in _scope_snapshot.items():
+        SCOPE_REGISTRY[_k] = _v
+    for _k in list(SCOPE_REGISTRY.keys()):
+        if _k not in _scope_snapshot:
+            SCOPE_REGISTRY.pop(_k, None)
 
 
 def test_scan_discovers_and_loads_memory_plugin(isolated_memory_loader):
