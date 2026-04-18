@@ -33,6 +33,23 @@ except Exception as _e:
 
 import pytest
 
+# ─── Thread leak guard ────────────────────────────────────────────────────────
+# Default every threading.Thread created during tests to daemon=True. Some
+# concurrency tests (SQLite write stress in test_220_regression, scope-bleed
+# 10-thread CRUD tests) occasionally deadlock under contention. With non-
+# daemon threads the stuck thread blocks interpreter shutdown, leaving the
+# pytest process alive forever — and under `conda run -n sapphire pytest …`
+# the wrapper also hangs, accumulating stuck shells that Krem has been
+# reporting for months.
+#
+# Tests that explicitly want non-daemon threads can still pass `daemon=False`.
+import threading as _threading
+_orig_thread_init = _threading.Thread.__init__
+def _daemon_default_thread_init(self, *args, **kwargs):
+    kwargs.setdefault('daemon', True)
+    _orig_thread_init(self, *args, **kwargs)
+_threading.Thread.__init__ = _daemon_default_thread_init
+
 
 @pytest.fixture
 def settings_defaults():

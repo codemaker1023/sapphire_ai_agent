@@ -571,15 +571,26 @@ class TestConcurrentGoals:
         def create_goals(prefix):
             for i in range(count):
                 try:
-                    with patch.object(goals_db, '_get_current_scope', return_value='default'):
-                        goals_db._create_goal(f"{prefix}-goal-{i}", scope='default')
+                    # Pass scope directly — _create_goal doesn't use
+                    # _get_current_scope, so no patching needed. Removing the
+                    # patch is critical: unittest.mock.patch.object is not
+                    # thread-safe and caused the whole test process to
+                    # deadlock across threads under contention.
+                    goals_db._create_goal(f"{prefix}-goal-{i}", scope='default')
                 except Exception as e:
                     errors.append(f"{prefix}-{i}: {e}")
 
-        t1 = threading.Thread(target=create_goals, args=('user',))
-        t2 = threading.Thread(target=create_goals, args=('ai',))
+        # daemon=True + join(timeout=) so a SQLite deadlock under concurrency
+        # fails the test instead of hanging the whole pytest process — the
+        # root cause of months of stuck-shell bug reports. Without daemon=True
+        # a stuck non-daemon thread keeps the interpreter alive forever at
+        # process exit (futex wait on a WAL lock).
+        t1 = threading.Thread(target=create_goals, args=('user',), daemon=True)
+        t2 = threading.Thread(target=create_goals, args=('ai',), daemon=True)
         t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.join(timeout=15); t2.join(timeout=15)
+        assert not t1.is_alive() and not t2.is_alive(), \
+            "Concurrent goal creation deadlocked — threads still running after 15s"
 
         assert not errors, f"Concurrent goal creation failed: {errors}"
 
@@ -590,8 +601,7 @@ class TestConcurrentGoals:
 
     def test_concurrent_goal_update_and_read(self, goals_db):
         """One thread updates, one reads — neither should crash."""
-        with patch.object(goals_db, '_get_current_scope', return_value='default'):
-            goals_db._create_goal("Shared goal", scope='default')
+        goals_db._create_goal("Shared goal", scope='default')
 
         errors = []
         iterations = 15
@@ -599,9 +609,8 @@ class TestConcurrentGoals:
         def update_loop():
             for i in range(iterations):
                 try:
-                    with patch.object(goals_db, '_get_current_scope', return_value='default'):
-                        goals_db._update_goal(1, scope='default',
-                                              progress_note=f"Update {i}")
+                    goals_db._update_goal(1, scope='default',
+                                          progress_note=f"Update {i}")
                 except Exception as e:
                     errors.append(f"update-{i}: {e}")
 
@@ -612,10 +621,12 @@ class TestConcurrentGoals:
                 except Exception as e:
                     errors.append(f"read-{i}: {e}")
 
-        t1 = threading.Thread(target=update_loop)
-        t2 = threading.Thread(target=read_loop)
+        t1 = threading.Thread(target=update_loop, daemon=True)
+        t2 = threading.Thread(target=read_loop, daemon=True)
         t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.join(timeout=15); t2.join(timeout=15)
+        assert not t1.is_alive() and not t2.is_alive(), \
+            "Concurrent goal read/write deadlocked — threads still running after 15s"
 
         assert not errors, f"Concurrent goal read/write failed: {errors}"
 

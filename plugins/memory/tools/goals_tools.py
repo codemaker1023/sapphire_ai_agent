@@ -165,9 +165,11 @@ def _get_db_path():
 def _get_connection():
     _ensure_db()
     conn = sqlite3.connect(_get_db_path(), timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     try:
+        # PRAGMAs can raise under WAL contention (database is locked after
+        # timeout). If this happens outside the try/finally the connection
+        # leaks and its finalizer blocks interpreter shutdown on the WAL lock.
+        conn.execute("PRAGMA foreign_keys=ON")
         yield conn
     finally:
         conn.close()
