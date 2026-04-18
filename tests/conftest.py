@@ -354,6 +354,7 @@ def event_bus_capture(monkeypatch):
         'core.tts.tts_client',
         'core.api_fastapi',
         'core.routes.chat',
+        'core.routes.settings',
         'core.continuity.executor',
         'core.continuity.scheduler',
         'core.wakeword.wake_detector',
