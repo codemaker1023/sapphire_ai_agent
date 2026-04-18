@@ -297,54 +297,64 @@ def scope_snapshot():
 
 
 @pytest.fixture
-def event_bus_capture():
-    """Subscribe to all event_bus publishes during the test; expose .events list.
+def event_bus_capture(monkeypatch):
+    """Capture every event_bus.publish() call during the test; expose .events list.
+
+    event_bus's subscribe() is generator-based (SSE streams), not callback-based —
+    so we intercept at the module-level publish() function instead. Records
+    (event_type, data) tuples without breaking real delivery.
 
     Usage:
         def test_something(event_bus_capture):
             # do something that should publish
-            assert ('PLUGIN_TOGGLED', {...}) in event_bus_capture.events
-
-    NOTE: subscribes to a fixed list of common events. To capture more, add to
-    _TRACKED below or subscribe directly with event_bus.subscribe in the test.
+            types_seen = [ev for ev, _ in event_bus_capture.events]
+            assert 'toolset_changed' in types_seen
     """
     from core import event_bus
     from types import SimpleNamespace
+    import importlib
+
+    # Snapshot the global replay buffer so this test's publishes don't
+    # pollute subsequent tests (the buffer is a fixed-size deque).
+    _bus = event_bus.get_event_bus()
+    _buffer_snapshot = list(_bus._replay_buffer)
 
     captured = []
-    _TRACKED = [
-        getattr(event_bus.Events, name, None)
-        for name in [
-            "PLUGIN_TOGGLED", "PLUGIN_RELOADED", "TOOLSET_CHANGED",
-            "CHAT_SETTINGS_CHANGED", "CHAT_CLEARED", "CHAT_SWITCHED",
-            "CHAT_CREATED", "SETTINGS_CHANGED", "PROMPT_CHANGED",
-            "AGENT_SPAWNED", "AGENT_COMPLETED", "AGENT_DISMISSED", "AGENT_BATCH_COMPLETE",
-            "MESSAGE_REMOVED",
-        ]
-    ]
-    handles = []
-    for ev in _TRACKED:
-        if ev is None:
-            continue
-        def _make(evname):
-            def _cb(data=None):
-                captured.append((evname, data))
-            return _cb
-        cb = _make(ev)
+    orig_publish = event_bus.publish
+
+    def _capturing_publish(event_type, data=None):
+        captured.append((event_type, data))
+        return orig_publish(event_type, data)
+
+    monkeypatch.setattr(event_bus, 'publish', _capturing_publish)
+
+    # Modules that import `publish` at module scope have already bound a
+    # reference to the original function; patching event_bus.publish alone
+    # doesn't affect them. Patch their local bindings too.
+    _MODULE_LEVEL_PUBLISH_IMPORTERS = (
+        'core.agents.manager',
+        'core.stt.recorder',
+        'core.tts.tts_client',
+        'core.api_fastapi',
+        'core.routes.chat',
+        'core.continuity.executor',
+        'core.continuity.scheduler',
+        'core.wakeword.wake_detector',
+    )
+    for _mod_name in _MODULE_LEVEL_PUBLISH_IMPORTERS:
         try:
-            event_bus.subscribe(ev, cb)
-            handles.append((ev, cb))
+            _mod = importlib.import_module(_mod_name)
         except Exception:
-            pass
+            continue
+        if hasattr(_mod, 'publish'):
+            monkeypatch.setattr(_mod, 'publish', _capturing_publish, raising=False)
 
     cap = SimpleNamespace(events=captured)
     yield cap
 
-    for ev, cb in handles:
-        try:
-            event_bus.unsubscribe(ev, cb)
-        except Exception:
-            pass
+    # Restore the replay buffer so tests don't leak into each other.
+    _bus._replay_buffer.clear()
+    _bus._replay_buffer.extend(_buffer_snapshot)
 
 
 @pytest.fixture
