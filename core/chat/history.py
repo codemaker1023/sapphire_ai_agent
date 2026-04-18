@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Union
 from pathlib import Path
@@ -664,13 +665,27 @@ class ChatSessionManager:
 
         logger.info(f"ChatSessionManager initialized with SQLite storage")
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection with WAL mode."""
+    @contextmanager
+    def _get_connection(self):
+        """Yield a database connection; close explicitly on exit.
+
+        sqlite3.Connection.__exit__ only commits/rolls back — it does NOT
+        close the conn. Prior code relied on GC to eventually close, which
+        under rapid use could accumulate handles whose finalizers block
+        interpreter shutdown on SQLite's WAL mutex (the root of months of
+        stuck-pytest-shell reports).
+
+        WAL + synchronous are set once in _init_db (persisted in db header).
+        busy_timeout IS honored during active transactions; sqlite3.connect's
+        timeout= kwarg is ignored once BEGIN fires (CPython #124510).
+        """
         conn = sqlite3.connect(str(self._db_path), timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.row_factory = sqlite3.Row
+            yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         """Initialize SQLite database with schema."""

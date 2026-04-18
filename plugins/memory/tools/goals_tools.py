@@ -166,9 +166,12 @@ def _get_connection():
     _ensure_db()
     conn = sqlite3.connect(_get_db_path(), timeout=10)
     try:
-        # PRAGMAs can raise under WAL contention (database is locked after
-        # timeout). If this happens outside the try/finally the connection
-        # leaks and its finalizer blocks interpreter shutdown on the WAL lock.
+        # busy_timeout IS honored during active transactions; sqlite3.connect's
+        # `timeout=` is ignored once BEGIN fires (CPython #124510). Without
+        # this the concurrent writer+reader pattern deadlocks at WAL
+        # checkpoint time. WAL mode is set once in _ensure_db (db-header-
+        # persisted), foreign_keys is per-conn in SQLite so it stays here.
+        conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA foreign_keys=ON")
         yield conn
     finally:

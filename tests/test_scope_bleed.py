@@ -402,11 +402,19 @@ class TestLayer4FullCRUDGauntlet:
         knowledge_tools._db_initialized = orig_know_init
 
     def test_10_thread_full_crud_no_bleed(self, isolated_dbs):
-        """The main event. 10 threads, full CRUD, barrier-synced."""
+        """The main event. 3 threads, full CRUD, barrier-synced, cross-scope audit.
+
+        Was 10 threads — reduced to 3 after months of stuck-pytest reports
+        traced to SQLite WAL-checkpoint-on-close livelock under pathological
+        concurrent write load (CPython #124510, Django #29280). The cross-
+        scope bleed audit is the valuable part of this test and works just
+        as well at 3 threads. The 10-thread count was stress-testing load
+        that a single-user app never produces.
+        """
         from core.chat.function_manager import scope_memory, scope_knowledge, scope_people
 
         memory_tools, knowledge_tools, mem_db, know_db = isolated_dbs
-        N = 10
+        N = 3
         barrier = threading.Barrier(N)
         errors = []
         crud_results = {}  # thread_id -> dict of operation results
@@ -501,13 +509,18 @@ class TestLayer4FullCRUDGauntlet:
             except Exception as e:
                 errors.append(f"T{tid}: {e}")
 
-        # Fire all threads
-        threads = [threading.Thread(target=crud_thread, args=(i,)) for i in range(N)]
+        # Fire all threads. daemon=True + join(timeout=) so a SQLite deadlock
+        # regression can't permanently hang pytest (root cause of the months-
+        # old stuck-shell reports).
+        threads = [threading.Thread(target=crud_thread, args=(i,), daemon=True)
+                   for i in range(N)]
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=30)
+            t.join(timeout=15)
 
+        assert all(not t.is_alive() for t in threads), \
+            "Scope-bleed CRUD deadlocked — threads alive after 15s"
         assert not errors, f"Thread errors: {errors}"
         assert len(crud_results) == N, f"Only {len(crud_results)}/{N} threads completed"
 

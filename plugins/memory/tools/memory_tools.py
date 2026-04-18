@@ -153,8 +153,11 @@ def _get_db_path():
 def _get_connection():
     _ensure_db()
     conn = sqlite3.connect(_get_db_path(), timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
     try:
+        # busy_timeout IS honored during active transactions; sqlite3.connect's
+        # `timeout=` is ignored once BEGIN fires (CPython #124510). WAL is set
+        # once in _ensure_db — db-header-persisted, no need to re-set per conn.
+        conn.execute("PRAGMA busy_timeout=10000")
         yield conn
     finally:
         conn.close()
