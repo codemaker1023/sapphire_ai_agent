@@ -348,6 +348,17 @@ def _ensure_db():
             if 'embedding' not in columns:
                 cursor.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
                 logger.info("Migration: added embedding column")
+            # Provenance columns: stamp rows with the provider+dim that produced
+            # them so a future provider swap doesn't silently mix vector spaces.
+            # Legacy rows (written before provenance) get NULL stamps and are
+            # excluded from vector search unless explicitly stamped via the
+            # integrity/re-embed tooling (safer than guessing their origin).
+            if 'embedding_provider' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN embedding_provider TEXT")
+                logger.info("Migration: added embedding_provider column")
+            if 'embedding_dim' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN embedding_dim INTEGER")
+                logger.info("Migration: added embedding_dim column")
 
             # Indexes
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON memories(timestamp)')
@@ -390,19 +401,35 @@ def _ensure_db():
 _backfill_done = False
 
 def _backfill_embeddings():
-    """Generate embeddings for memories that don't have them yet. Called lazily."""
+    """Generate embeddings + stamp provenance for memories lacking either.
+    Called lazily on first search.
+
+    `_backfill_done` only flips to True when we actually complete without a
+    transient failure — old behavior flipped it after partial failure and
+    stranded the remaining rows until process restart. Now a transient
+    failure leaves the flag False so the next search retries the rest.
+    """
     global _backfill_done
     if _backfill_done:
         return
 
     embedder = _get_embedder()
     if not embedder.available:
+        # No provider configured — nothing to do this session, and nothing to
+        # retry until the user configures one (which triggers a swap reset).
         _backfill_done = True
         return
 
+    # Find rows missing EITHER the blob OR the provenance stamp. The stamp gap
+    # matters because an unstamped row (from before provenance existed) won't
+    # match any active provider's filter and will silently disappear from
+    # vector search.
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, content FROM memories WHERE embedding IS NULL')
+        cursor.execute(
+            'SELECT id, content, embedding, embedding_provider, embedding_dim FROM memories '
+            'WHERE embedding IS NULL OR embedding_provider IS NULL OR embedding_dim IS NULL'
+        )
         rows = cursor.fetchall()
 
     if not rows:
@@ -412,28 +439,43 @@ def _backfill_embeddings():
     logger.info(f"Backfilling embeddings for {len(rows)} memories...")
     batch_size = 32
     filled = 0
+    transient_failure = False
+    from core.embeddings import stamp_embedding
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
         ids = [r[0] for r in batch]
         texts = [r[1] for r in batch]
         embs = embedder.embed(texts, prefix='search_document')
         if embs is None:
+            transient_failure = True
             break
         try:
             with _get_connection() as conn:
                 cursor = conn.cursor()
                 for row_id, emb in zip(ids, embs):
-                    cursor.execute('UPDATE memories SET embedding = ? WHERE id = ?',
-                                   (emb.tobytes(), row_id))
+                    blob, provider_id, dim = stamp_embedding(emb, embedder)
+                    cursor.execute(
+                        'UPDATE memories SET embedding = ?, embedding_provider = ?, embedding_dim = ? '
+                        'WHERE id = ?',
+                        (blob, provider_id, dim, row_id)
+                    )
                 conn.commit()
                 filled += len(batch)
         except Exception as e:
             logger.error(f"Backfill batch failed: {e}")
+            transient_failure = True
             break
 
-    _backfill_done = True
-    if filled:
-        logger.info(f"Backfill complete: {filled}/{len(rows)} memories embedded")
+    if transient_failure:
+        logger.warning(
+            f"Backfill incomplete: {filled}/{len(rows)} memories done. "
+            f"Remaining will retry on next search."
+        )
+        # Leave _backfill_done False so next search retries the remainder.
+    else:
+        _backfill_done = True
+        if filled:
+            logger.info(f"Backfill complete: {filled}/{len(rows)} memories embedded")
 
 
 def _get_current_scope():
@@ -584,19 +626,25 @@ def _save_memory(content: str, label: str = None, scope: str = 'default') -> tup
         keywords = _extract_keywords(content)
         label = label.strip().lower() if label else None
 
-        # Generate embedding
+        # Generate embedding + stamp provenance. Stamping is atomic with the
+        # embedder reference we used — a concurrent provider swap can't retag
+        # this vector with a different provider's identity.
         embedding_blob = None
+        embedding_provider = None
+        embedding_dim = None
         embedder = _get_embedder()
         if embedder.available:
             embs = embedder.embed([content], prefix='search_document')
             if embs is not None:
-                embedding_blob = embs[0].tobytes()
+                from core.embeddings import stamp_embedding
+                embedding_blob, embedding_provider, embedding_dim = stamp_embedding(embs[0], embedder)
 
         with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'INSERT INTO memories (content, keywords, scope, label, embedding) VALUES (?, ?, ?, ?, ?)',
-                (content, keywords, scope, label, embedding_blob)
+                'INSERT INTO memories (content, keywords, scope, label, embedding, embedding_provider, embedding_dim) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (content, keywords, scope, label, embedding_blob, embedding_provider, embedding_dim)
             )
             memory_id = cursor.lastrowid
             conn.commit()
@@ -639,6 +687,11 @@ def _vector_search(query: str, scope: str, labels: list, limit: int) -> list:
     """
     Semantic search via cosine similarity on stored embeddings.
     Returns list of (id, content, timestamp, label, similarity) tuples.
+
+    Filters by provenance: only rows stamped with the current provider and
+    matching dimension are compared. Rows from other providers (legacy or
+    pre-swap) are silently skipped — they'd either crash np.dot or return
+    garbage scores. FTS5 still finds them.
     """
     embedder = _get_embedder()
     if not embedder.available:
@@ -648,33 +701,56 @@ def _vector_search(query: str, scope: str, labels: list, limit: int) -> list:
     if query_emb is None:
         return []
     query_vec = query_emb[0]
+    query_dim = int(query_vec.shape[0])
+    active_provider = getattr(embedder, 'provider_id', None)
 
     with _get_connection() as conn:
         cursor = conn.cursor()
 
+        # Prefer fresh-timestamp rows when the DB is large — `LIMIT 10000` on
+        # bare rowid order silently drops newer memories once n > 10k. Using
+        # ORDER BY timestamp DESC makes the window recency-biased, which
+        # matches what a user expects ("search my recent memories first").
         scope_sql, scope_params = _scope_condition(scope)
+        provenance_sql = (
+            'embedding IS NOT NULL AND embedding_provider = ? AND embedding_dim = ?'
+        )
+        provenance_params = [active_provider, query_dim]
         if labels:
             placeholders = ','.join('?' * len(labels))
             cursor.execute(
-                f'SELECT id, content, timestamp, label, embedding FROM memories WHERE {scope_sql} AND label IN ({placeholders}) AND embedding IS NOT NULL LIMIT 10000',
-                scope_params + labels)
+                f'SELECT id, content, timestamp, label, embedding FROM memories '
+                f'WHERE {scope_sql} AND label IN ({placeholders}) AND {provenance_sql} '
+                f'ORDER BY timestamp DESC LIMIT 10000',
+                scope_params + labels + provenance_params)
         else:
             cursor.execute(
-                f'SELECT id, content, timestamp, label, embedding FROM memories WHERE {scope_sql} AND embedding IS NOT NULL LIMIT 10000',
-                scope_params)
+                f'SELECT id, content, timestamp, label, embedding FROM memories '
+                f'WHERE {scope_sql} AND {provenance_sql} '
+                f'ORDER BY timestamp DESC LIMIT 10000',
+                scope_params + provenance_params)
 
         rows = cursor.fetchall()
 
     if not rows:
         return []
 
-    # Compute cosine similarity (vectors are already L2-normalized)
+    # Compute cosine similarity (vectors are already L2-normalized).
+    # Per-row try/except defends against malformed blobs that somehow escaped
+    # the provenance filter (partial writes, corrupted rows).
     scored = []
     for row_id, content, timestamp, lbl, emb_blob in rows:
-        emb = np.frombuffer(emb_blob, dtype=np.float32)
-        sim = float(np.dot(query_vec, emb))
-        if sim >= SIMILARITY_THRESHOLD:
-            scored.append((row_id, content, timestamp, lbl, sim))
+        try:
+            emb = np.frombuffer(emb_blob, dtype=np.float32)
+            if emb.shape[0] != query_dim:
+                continue
+            sim = float(np.dot(query_vec, emb))
+            if np.isnan(sim) or np.isinf(sim):
+                continue
+            if sim >= SIMILARITY_THRESHOLD:
+                scored.append((row_id, content, timestamp, lbl, sim))
+        except Exception:
+            continue
 
     scored.sort(key=lambda x: x[4], reverse=True)
     return scored[:limit]

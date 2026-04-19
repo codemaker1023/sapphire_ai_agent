@@ -79,11 +79,16 @@ def test_R7_save_knowledge_success_path_still_returns_true(isolated_knowledge):
 
 # ─── R8: search_rag is strict scope ──────────────────────────────────────────
 
-def _mock_embedder(vec):
-    """Build a MagicMock embedder that returns a fixed vector for any query."""
+def _mock_embedder(vec, provider_id='test:fixed-vec'):
+    """Build a MagicMock embedder that returns a fixed vector for any query.
+    `provider_id` matches the stamp that test-inserted rows will carry —
+    after the provenance-filter landing, read paths only consider rows
+    whose stamp matches the active embedder's provider_id + dim."""
     emb = MagicMock()
     emb.available = True
     emb.embed = MagicMock(return_value=np.array([vec], dtype=np.float32))
+    emb.provider_id = provider_id
+    emb.dimension = len(vec)
     return emb
 
 
@@ -102,16 +107,19 @@ def test_R8_search_rag_is_strict_scope_no_global_overlay(isolated_knowledge):
     tab_rag2 = kt.create_tab('rag_tab_2', '__rag__:chat2', description=None, tab_type='ai')
 
     # Insert distinct content into each scope, each with a unique vector
-    # Use orthogonal-ish vectors so similarity is high for exact-match only
+    # Use orthogonal-ish vectors so similarity is high for exact-match only.
+    # Stamp with the same provider_id as the mock embedder so the read-path
+    # provenance filter lets these rows through.
     def _insert_with_vec(tab_id, content, vec):
-        # Directly insert row + embedding blob
         import sqlite3 as _sql
+        arr = np.array(vec, dtype=np.float32)
         with kt._get_connection() as conn:
             cur = conn.cursor()
             cur.execute('''
-                INSERT INTO knowledge_entries (tab_id, content, embedding, chunk_index)
-                VALUES (?, ?, ?, 0)
-            ''', (tab_id, content, np.array(vec, dtype=np.float32).tobytes()))
+                INSERT INTO knowledge_entries (tab_id, content, embedding,
+                    embedding_provider, embedding_dim, chunk_index)
+                VALUES (?, ?, ?, ?, ?, 0)
+            ''', (tab_id, content, arr.tobytes(), 'test:fixed-vec', int(arr.shape[0])))
             conn.commit()
 
     _insert_with_vec(tab_global, 'global_secret_content', [1.0, 0.0, 0.0] + [0.0] * 381)

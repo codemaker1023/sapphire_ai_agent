@@ -14,10 +14,26 @@ EMBEDDING_ONNX_FILE = 'onnx/model_quantized.onnx'
 class LocalEmbedder:
     """Lazy-loaded nomic-embed-text-v1.5 via ONNX runtime."""
 
+    # Stable identifier stamped onto stored vectors. Read-path filters by this.
+    # Change = everything previously written by this provider becomes invalid
+    # until re-embedded, so don't rename casually.
+    PROVIDER_ID = 'local:nomic-embed-text-v1.5'
+    # Advertised dimension — actual stamped dim on write is derived from the
+    # returned vector, this is for contract-checks at register time.
+    DIMENSION = 768
+
     def __init__(self):
         self.session = None
         self.tokenizer = None
         self.input_names = None
+
+    @property
+    def provider_id(self):
+        return self.PROVIDER_ID
+
+    @property
+    def dimension(self):
+        return self.DIMENSION
 
     def _load(self):
         if self.session is not None:
@@ -78,6 +94,26 @@ class LocalEmbedder:
 class RemoteEmbedder:
     """OpenAI-compatible embedding API client (for Nomic via TEI, etc.)."""
 
+    # Remote providers don't declare dim statically — we learn it from the first
+    # successful response. Provider identity is the URL itself (the real space
+    # is defined by whatever model the server runs). Swapping the API URL to a
+    # different model's endpoint is effectively a different provider.
+    PROVIDER_ID = 'remote-api'
+
+    def __init__(self):
+        # Dimension discovered at first successful call and cached.
+        self._observed_dim = None
+
+    @property
+    def provider_id(self):
+        # Include URL host/path so swapping the URL is treated as a swap.
+        url = getattr(config, 'EMBEDDING_API_URL', '')
+        return f"{self.PROVIDER_ID}:{(url or '').strip() or 'unconfigured'}"
+
+    @property
+    def dimension(self):
+        return self._observed_dim
+
     @staticmethod
     def _normalize_url(url):
         """Fix common URL mistakes — invisible UX."""
@@ -121,7 +157,10 @@ class RemoteEmbedder:
             # L2-normalize (safe regardless of server behavior)
             norms = np.linalg.norm(vecs, axis=1, keepdims=True)
             norms[norms == 0] = 1
-            return (vecs / norms).astype(np.float32)
+            result = (vecs / norms).astype(np.float32)
+            # Cache observed dimension for provenance stamping.
+            self._observed_dim = int(result.shape[-1])
+            return result
         except Exception as e:
             logger.error(f"Remote embedding failed: {e}")
             return None
@@ -133,6 +172,19 @@ class RemoteEmbedder:
 
 class SapphireRouterEmbedder:
     """Forwards embedding requests to a Sapphire Router."""
+
+    PROVIDER_ID = 'sapphire-router'
+
+    def __init__(self):
+        self._observed_dim = None
+
+    @property
+    def provider_id(self):
+        return f"{self.PROVIDER_ID}:{self._get_url() or 'unconfigured'}"
+
+    @property
+    def dimension(self):
+        return self._observed_dim
 
     def _get_url(self):
         import os
@@ -162,7 +214,17 @@ class SapphireRouterEmbedder:
             resp.raise_for_status()
             data = resp.json()
             if 'embeddings' in data:
-                return np.array(data['embeddings'], dtype=np.float32)
+                vecs = np.array(data['embeddings'], dtype=np.float32)
+                # L2-normalize defensively — other core providers do, the router
+                # may or may not, and cosine similarity + SIMILARITY_THRESHOLD
+                # only make sense on unit vectors. Scout finding: without this,
+                # mixing router-written vectors with Local/Remote-written ones
+                # silently breaks ranking.
+                norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+                norms[norms == 0] = 1
+                result = (vecs / norms).astype(np.float32)
+                self._observed_dim = int(result.shape[-1])
+                return result
             return None
         except Exception as e:
             import httpx as _hx
@@ -179,6 +241,17 @@ class SapphireRouterEmbedder:
 
 class NullEmbedder:
     """Disabled — consumers fall back to FTS5/LIKE search."""
+
+    PROVIDER_ID = 'none'
+    DIMENSION = 0
+
+    @property
+    def provider_id(self):
+        return self.PROVIDER_ID
+
+    @property
+    def dimension(self):
+        return self.DIMENSION
 
     def embed(self, texts, prefix='search_document'):
         return None
@@ -200,6 +273,10 @@ class EmbeddingRegistry(BaseProviderRegistry):
         super().__init__('embedding', 'EMBEDDING_PROVIDER')
         self.register_core('local', LocalEmbedder, 'Local (Nomic)', is_local=True)
         self.register_core('api', RemoteEmbedder, 'Remote (Nomic API)', is_local=False)
+        # sapphire_router is surfaced in the Settings UI — must be registered here
+        # too or selecting it silently falls through to NullEmbedder and every
+        # save lands with embedding=NULL. Scout finding, active bug pre-fix.
+        self.register_core('sapphire_router', SapphireRouterEmbedder, 'Sapphire Router', is_local=False)
         self.register_core('none', NullEmbedder, 'None (disabled)', is_local=True)
 
     def create(self, key, **kwargs):
@@ -248,3 +325,47 @@ def switch_embedding_provider(provider_name):
         mem._backfill_done = False
     except Exception:
         pass
+    try:
+        import plugins.memory.tools.knowledge_tools as know
+        know._backfill_done = False
+    except Exception:
+        pass
+
+
+def current_provenance():
+    """Return (provider_id, dimension) for the currently-active embedder.
+    Either may be None if the embedder isn't usable or dim isn't known yet
+    (remote providers learn dim from first successful response).
+
+    Write paths stamp rows with this. Read paths filter by this. The pair is
+    the load-bearing identity that prevents silently mixing vector spaces.
+    """
+    embedder = get_embedder()
+    if not embedder:
+        return None, None
+    provider_id = getattr(embedder, 'provider_id', None)
+    dim = getattr(embedder, 'dimension', None)
+    return provider_id, dim
+
+
+def stamp_embedding(vector, embedder=None):
+    """Return (blob, provider_id, dim) for a vector about to be written.
+
+    `vector` is a 1-D numpy array (a single embedding, not a batch).
+    `embedder` — the specific embedder instance that produced the vector.
+    Pass it explicitly when the caller already has a reference — otherwise
+    a concurrent `switch_embedding_provider` could make `current_provenance()`
+    return a different provider than the one that actually produced the vec.
+
+    Returned values stamp the row: use `(blob, provider_id, dim)` on INSERT.
+    """
+    import numpy as _np
+    if vector is None:
+        return None, None, None
+    arr = _np.asarray(vector, dtype=_np.float32)
+    if arr.ndim != 1:
+        arr = arr.reshape(-1)
+    if embedder is None:
+        embedder = get_embedder()
+    provider_id = getattr(embedder, 'provider_id', None) if embedder else None
+    return arr.tobytes(), provider_id, int(arr.shape[0])

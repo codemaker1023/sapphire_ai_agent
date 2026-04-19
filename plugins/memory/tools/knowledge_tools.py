@@ -23,6 +23,11 @@ _db_path = None
 _db_initialized = False
 _db_lock = threading.Lock()
 
+# Flips True only when backfill completed without transient failure. A failed
+# attempt leaves it False so the next search retries. Reset on provider swap
+# (see switch_embedding_provider in core.embeddings).
+_backfill_done = False
+
 AVAILABLE_FUNCTIONS = [
     'save_person',
     'save_knowledge',
@@ -221,6 +226,16 @@ def _ensure_db():
             cursor.execute("ALTER TABLE people ADD COLUMN email_whitelisted INTEGER DEFAULT 0")
             logger.info("Migrated people table: added email_whitelisted column")
 
+        # Migration: add embedding provenance columns. Scout finding 2026-04-19
+        # — without (provider, dim) stamped per row, a provider swap silently
+        # invalidates all stored vectors. Read-path filters by these.
+        try:
+            cursor.execute('SELECT embedding_provider FROM people LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE people ADD COLUMN embedding_provider TEXT")
+            cursor.execute("ALTER TABLE people ADD COLUMN embedding_dim INTEGER")
+            logger.info("Migrated people table: added embedding_provider, embedding_dim")
+
         # Unique per name+scope (drop old name-only index)
         cursor.execute('DROP INDEX IF EXISTS idx_people_name_lower')
         cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_people_name_scope ON people(LOWER(name), scope)')
@@ -255,6 +270,14 @@ def _ensure_db():
             )
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_entries_tab ON knowledge_entries(tab_id)')
+
+        # Provenance columns for knowledge entries — see note above for people.
+        try:
+            cursor.execute('SELECT embedding_provider FROM knowledge_entries LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE knowledge_entries ADD COLUMN embedding_provider TEXT")
+            cursor.execute("ALTER TABLE knowledge_entries ADD COLUMN embedding_dim INTEGER")
+            logger.info("Migrated knowledge_entries: added embedding_provider, embedding_dim")
 
         # FTS5 on entries
         try:
@@ -516,11 +539,14 @@ def create_or_update_person(name, relationship=None, phone=None, email=None, add
         embed_text = '. '.join(parts)
 
         embedding_blob = None
+        embedding_provider = None
+        embedding_dim = None
         embedder = _get_embedder()
         if embedder and embedder.available:
             embs = embedder.embed([embed_text], prefix='search_document')
             if embs is not None:
-                embedding_blob = embs[0].tobytes()
+                from core.embeddings import stamp_embedding
+                embedding_blob, embedding_provider, embedding_dim = stamp_embedding(embs[0], embedder)
 
         now = datetime.now().isoformat()
 
@@ -536,7 +562,14 @@ def create_or_update_person(name, relationship=None, phone=None, email=None, add
                 updates.append('email_whitelisted = ?'); params.append(int(email_whitelisted))
             if name.strip():
                 updates.append('name = ?'); params.append(name.strip())
-            updates.append('embedding = ?'); params.append(embedding_blob)
+            # Only overwrite embedding + provenance if we produced a fresh one;
+            # a transient embed failure shouldn't strip a good vector off an
+            # existing row. Scout finding: update_memory used to NULL-out the
+            # vector on embed failure; applying the guard here too.
+            if embedding_blob is not None:
+                updates.append('embedding = ?'); params.append(embedding_blob)
+                updates.append('embedding_provider = ?'); params.append(embedding_provider)
+                updates.append('embedding_dim = ?'); params.append(embedding_dim)
             updates.append('updated_at = ?'); params.append(now)
             params.append(pid)
             cursor.execute(f'UPDATE people SET {", ".join(updates)} WHERE id = ?', params)
@@ -544,8 +577,12 @@ def create_or_update_person(name, relationship=None, phone=None, email=None, add
             is_new_flag = False
         else:
             cursor.execute(
-                'INSERT INTO people (name, relationship, phone, email, address, notes, scope, embedding, updated_at, email_whitelisted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (name.strip(), relationship, phone, email, address, notes, scope, embedding_blob, now, int(email_whitelisted) if email_whitelisted else 0)
+                'INSERT INTO people (name, relationship, phone, email, address, notes, scope, embedding, '
+                'embedding_provider, embedding_dim, updated_at, email_whitelisted) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (name.strip(), relationship, phone, email, address, notes, scope,
+                 embedding_blob, embedding_provider, embedding_dim, now,
+                 int(email_whitelisted) if email_whitelisted else 0)
             )
             pid = cursor.lastrowid
             conn.commit()
@@ -691,11 +728,14 @@ MAX_ENTRIES_PER_SCOPE = 50_000  # ~20MB of text + embeddings
 
 def add_entry(tab_id, content, chunk_index=0, source_filename=None):
     embedding_blob = None
+    embedding_provider = None
+    embedding_dim = None
     embedder = _get_embedder()
     if embedder and embedder.available:
         embs = embedder.embed([content], prefix='search_document')
         if embs is not None:
-            embedding_blob = embs[0].tobytes()
+            from core.embeddings import stamp_embedding
+            embedding_blob, embedding_provider, embedding_dim = stamp_embedding(embs[0], embedder)
 
     with _get_connection() as conn:
         cursor = conn.cursor()
@@ -711,8 +751,10 @@ def add_entry(tab_id, content, chunk_index=0, source_filename=None):
             raise ValueError(f"Knowledge scope entry limit reached ({MAX_ENTRIES_PER_SCOPE:,})")
 
         cursor.execute(
-            'INSERT INTO knowledge_entries (tab_id, content, chunk_index, source_filename, embedding) VALUES (?, ?, ?, ?, ?)',
-            (tab_id, content, chunk_index, source_filename, embedding_blob)
+            'INSERT INTO knowledge_entries (tab_id, content, chunk_index, source_filename, '
+            'embedding, embedding_provider, embedding_dim) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (tab_id, content, chunk_index, source_filename,
+             embedding_blob, embedding_provider, embedding_dim)
         )
         entry_id = cursor.lastrowid
         # Bump tab updated_at
@@ -733,19 +775,33 @@ def add_entry(tab_id, content, chunk_index=0, source_filename=None):
 
 def update_entry(entry_id, content):
     embedding_blob = None
+    embedding_provider = None
+    embedding_dim = None
     embedder = _get_embedder()
     if embedder and embedder.available:
         embs = embedder.embed([content], prefix='search_document')
         if embs is not None:
-            embedding_blob = embs[0].tobytes()
+            from core.embeddings import stamp_embedding
+            embedding_blob, embedding_provider, embedding_dim = stamp_embedding(embs[0], embedder)
 
     tab_scope = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            'UPDATE knowledge_entries SET content = ?, embedding = ?, updated_at = ? WHERE id = ?',
-            (content, embedding_blob, datetime.now().isoformat(), entry_id)
-        )
+        # Only overwrite embedding columns when we actually produced a fresh
+        # embedding — a transient embed failure shouldn't strip the existing
+        # vector. Scout finding: this was a silent data-loss path.
+        if embedding_blob is not None:
+            cursor.execute(
+                'UPDATE knowledge_entries SET content = ?, embedding = ?, '
+                'embedding_provider = ?, embedding_dim = ?, updated_at = ? WHERE id = ?',
+                (content, embedding_blob, embedding_provider, embedding_dim,
+                 datetime.now().isoformat(), entry_id)
+            )
+        else:
+            cursor.execute(
+                'UPDATE knowledge_entries SET content = ?, updated_at = ? WHERE id = ?',
+                (content, datetime.now().isoformat(), entry_id)
+            )
         changed = cursor.rowcount > 0
         if changed:
             cursor.execute('''
@@ -837,24 +893,35 @@ def search_rag(query, scope, limit=5, threshold=0.40, max_tokens=4000):
     if query_emb is None:
         return []
     query_vec = query_emb[0]
+    query_dim = int(query_vec.shape[0])
+    active_provider = getattr(embedder, 'provider_id', None)
 
     with _get_connection() as conn:
         cursor = conn.cursor()
-        # Strict scope match — no global overlay for RAG
+        # Strict scope match — no global overlay for RAG. Filter by provenance
+        # so stale-provider vectors don't corrupt RAG retrieval.
         cursor.execute('''
             SELECT e.id, e.content, t.name, e.embedding, e.source_filename
             FROM knowledge_entries e JOIN knowledge_tabs t ON e.tab_id = t.id
             WHERE t.scope = ? AND e.embedding IS NOT NULL
-            LIMIT 10000
-        ''', (scope,))
+              AND e.embedding_provider = ? AND e.embedding_dim = ?
+            ORDER BY e.updated_at DESC LIMIT 10000
+        ''', (scope, active_provider, query_dim))
         rows = cursor.fetchall()
 
     scored = []
     for eid, content, tname, emb_blob, src_file in rows:
-        emb = np.frombuffer(emb_blob, dtype=np.float32)
-        sim = float(np.dot(query_vec, emb))
-        if sim >= threshold:
-            scored.append({"content": content, "filename": src_file or tname, "score": sim})
+        try:
+            emb = np.frombuffer(emb_blob, dtype=np.float32)
+            if emb.shape[0] != query_dim:
+                continue
+            sim = float(np.dot(query_vec, emb))
+            if np.isnan(sim) or np.isinf(sim):
+                continue
+            if sim >= threshold:
+                scored.append({"content": content, "filename": src_file or tname, "score": sim})
+        except Exception:
+            continue
     scored.sort(key=lambda x: x["score"], reverse=True)
 
     # Accumulate up to token budget
@@ -1119,7 +1186,116 @@ def _search_entries(query, scope, category=None, limit=10):
     return results
 
 
+def _backfill_knowledge_embeddings():
+    """Generate embeddings + stamp provenance for knowledge_entries and
+    people rows that lack either. Called lazily on first vector search.
+
+    Without this, a transient embed failure at write time (remote down during
+    add_entry / save_person) permanently stranded the row with NULL embedding
+    because there was no backfill path. Scout finding: memory had backfill;
+    knowledge/people didn't.
+    """
+    global _backfill_done
+    if _backfill_done:
+        return
+
+    embedder = _get_embedder()
+    if not embedder or not embedder.available:
+        _backfill_done = True
+        return
+
+    transient_failure = False
+    filled_total = 0
+    from core.embeddings import stamp_embedding
+
+    # Knowledge entries
+    with _get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id, content FROM knowledge_entries '
+            'WHERE embedding IS NULL OR embedding_provider IS NULL OR embedding_dim IS NULL'
+        )
+        entry_rows = cursor.fetchall()
+
+    if entry_rows:
+        logger.info(f"Backfilling embeddings for {len(entry_rows)} knowledge entries...")
+        batch_size = 32
+        for i in range(0, len(entry_rows), batch_size):
+            batch = entry_rows[i:i + batch_size]
+            ids = [r[0] for r in batch]
+            texts = [r[1] for r in batch]
+            embs = embedder.embed(texts, prefix='search_document')
+            if embs is None:
+                transient_failure = True
+                break
+            try:
+                with _get_connection() as conn:
+                    cursor = conn.cursor()
+                    for row_id, emb in zip(ids, embs):
+                        blob, provider_id, dim = stamp_embedding(emb, embedder)
+                        cursor.execute(
+                            'UPDATE knowledge_entries SET embedding = ?, '
+                            'embedding_provider = ?, embedding_dim = ? WHERE id = ?',
+                            (blob, provider_id, dim, row_id)
+                        )
+                    conn.commit()
+                    filled_total += len(batch)
+            except Exception as e:
+                logger.error(f"Knowledge entry backfill batch failed: {e}")
+                transient_failure = True
+                break
+
+    # People
+    with _get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id, name, relationship, phone, email, address, notes FROM people '
+            'WHERE embedding IS NULL OR embedding_provider IS NULL OR embedding_dim IS NULL'
+        )
+        people_rows = cursor.fetchall()
+
+    if people_rows and not transient_failure:
+        logger.info(f"Backfilling embeddings for {len(people_rows)} people...")
+        for pid, name, rel, phone, email, addr, notes in people_rows:
+            parts = [name or '']
+            if rel: parts.append(f"relationship: {rel}")
+            if phone: parts.append(f"phone: {phone}")
+            if email: parts.append(f"email: {email}")
+            if addr: parts.append(f"address: {addr}")
+            if notes: parts.append(f"notes: {notes}")
+            embed_text = '. '.join(parts)
+            embs = embedder.embed([embed_text], prefix='search_document')
+            if embs is None:
+                transient_failure = True
+                break
+            try:
+                blob, provider_id, dim = stamp_embedding(embs[0], embedder)
+                with _get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        'UPDATE people SET embedding = ?, embedding_provider = ?, embedding_dim = ? '
+                        'WHERE id = ?',
+                        (blob, provider_id, dim, pid)
+                    )
+                    conn.commit()
+                    filled_total += 1
+            except Exception as e:
+                logger.error(f"People backfill row failed: {e}")
+                transient_failure = True
+                break
+
+    if transient_failure:
+        logger.warning(
+            f"Knowledge/people backfill incomplete ({filled_total} filled). Will retry next search."
+        )
+    else:
+        _backfill_done = True
+        if filled_total:
+            logger.info(f"Knowledge/people backfill complete: {filled_total} rows embedded")
+
+
 def _vector_search_entries(query, scope, category=None, limit=10):
+    _backfill_knowledge_embeddings()
     embedder = _get_embedder()
     if not embedder or not embedder.available:
         return []
@@ -1128,34 +1304,51 @@ def _vector_search_entries(query, scope, category=None, limit=10):
     if query_emb is None:
         return []
     query_vec = query_emb[0]
+    query_dim = int(query_vec.shape[0])
+    active_provider = getattr(embedder, 'provider_id', None)
 
     with _get_connection() as conn:
         cursor = conn.cursor()
 
+        # Filter by provenance: rows from other providers / wrong dim are
+        # skipped at the SQL level. Each search is already re-embedding the
+        # query under the active provider.
         scope_sql, scope_params = _scope_condition(scope, 't.scope')
+        provenance_sql = (
+            'e.embedding IS NOT NULL AND e.embedding_provider = ? AND e.embedding_dim = ?'
+        )
+        provenance_params = [active_provider, query_dim]
         if category:
             cursor.execute(f'''
                 SELECT e.id, e.content, t.name, e.embedding, e.source_filename
                 FROM knowledge_entries e JOIN knowledge_tabs t ON e.tab_id = t.id
-                WHERE {scope_sql} AND LOWER(t.name) = LOWER(?) AND e.embedding IS NOT NULL
-            ''', scope_params + [category])
+                WHERE {scope_sql} AND LOWER(t.name) = LOWER(?) AND {provenance_sql}
+            ''', scope_params + [category] + provenance_params)
         else:
             cursor.execute(f'''
                 SELECT e.id, e.content, t.name, e.embedding, e.source_filename
                 FROM knowledge_entries e JOIN knowledge_tabs t ON e.tab_id = t.id
-                WHERE {scope_sql} AND e.embedding IS NOT NULL
-            ''', scope_params)
+                WHERE {scope_sql} AND {provenance_sql}
+            ''', scope_params + provenance_params)
 
         rows = cursor.fetchall()
 
     scored = []
     for eid, content, tname, emb_blob, src_file in rows:
-        emb = np.frombuffer(emb_blob, dtype=np.float32)
-        sim = float(np.dot(query_vec, emb))
-        if sim >= SIMILARITY_THRESHOLD:
-            entry = {"id": eid, "content": content, "tab": tname, "source": "knowledge", "score": sim}
-            if src_file: entry["file"] = src_file
-            scored.append(entry)
+        try:
+            emb = np.frombuffer(emb_blob, dtype=np.float32)
+            if emb.shape[0] != query_dim:
+                continue
+            sim = float(np.dot(query_vec, emb))
+            if np.isnan(sim) or np.isinf(sim):
+                continue
+            if sim >= SIMILARITY_THRESHOLD:
+                entry = {"id": eid, "content": content, "tab": tname, "source": "knowledge", "score": sim}
+                if src_file:
+                    entry["file"] = src_file
+                scored.append(entry)
+        except Exception:
+            continue
 
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:limit]
@@ -1165,25 +1358,40 @@ def _search_people(query, scope='default', limit=10):
     """Search people via vector + LIKE. Only returns actual matches."""
     results = []
 
+    _backfill_knowledge_embeddings()
     # Vector search — use higher threshold for people (their embeddings are dense info strings)
     embedder = _get_embedder()
     if embedder and embedder.available:
         query_emb = embedder.embed([query], prefix='search_query')
         if query_emb is not None:
             query_vec = query_emb[0]
+            query_dim = int(query_vec.shape[0])
+            active_provider = getattr(embedder, 'provider_id', None)
             with _get_connection() as conn:
                 cursor = conn.cursor()
                 scope_sql, scope_params = _scope_condition(scope)
-                cursor.execute(f'SELECT id, name, relationship, phone, email, address, notes, embedding FROM people WHERE {scope_sql} AND embedding IS NOT NULL', scope_params)
+                cursor.execute(
+                    f'SELECT id, name, relationship, phone, email, address, notes, embedding '
+                    f'FROM people WHERE {scope_sql} AND embedding IS NOT NULL '
+                    f'AND embedding_provider = ? AND embedding_dim = ?',
+                    scope_params + [active_provider, query_dim]
+                )
                 rows = cursor.fetchall()
             for pid, name, rel, phone, email, addr, notes, emb_blob in rows:
-                emb = np.frombuffer(emb_blob, dtype=np.float32)
-                sim = float(np.dot(query_vec, emb))
-                # Higher threshold for people — their dense contact strings match too broadly at 0.40
-                if sim >= 0.55:
-                    results.append({"id": pid, "name": name, "relationship": rel,
-                                    "phone": phone, "email": email, "address": addr,
-                                    "notes": notes, "source": "people", "score": sim})
+                try:
+                    emb = np.frombuffer(emb_blob, dtype=np.float32)
+                    if emb.shape[0] != query_dim:
+                        continue
+                    sim = float(np.dot(query_vec, emb))
+                    if np.isnan(sim) or np.isinf(sim):
+                        continue
+                    # Higher threshold for people — their dense contact strings match too broadly at 0.40
+                    if sim >= 0.55:
+                        results.append({"id": pid, "name": name, "relationship": rel,
+                                        "phone": phone, "email": email, "address": addr,
+                                        "notes": notes, "source": "people", "score": sim})
+                except Exception:
+                    continue
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:limit]
 

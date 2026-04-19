@@ -700,16 +700,34 @@ async def update_memory(memory_id: int, request: Request, _=Depends(require_logi
         label = data.get('label')
 
         embedding_blob = None
+        embedding_provider = None
+        embedding_dim = None
         embedder = memory._get_embedder()
         if embedder.available:
             embs = embedder.embed([content], prefix='search_document')
             if embs is not None:
-                embedding_blob = embs[0].tobytes()
+                from core.embeddings import stamp_embedding
+                embedding_blob, embedding_provider, embedding_dim = stamp_embedding(embs[0], embedder)
 
-        cursor.execute(
-            'UPDATE memories SET content = ?, keywords = ?, label = ?, embedding = ?, timestamp = CURRENT_TIMESTAMP WHERE id = ? AND scope = ?',
-            (content, keywords, label, embedding_blob, memory_id, scope)
-        )
+        # Only overwrite the embedding columns when we actually produced a
+        # fresh vector — a transient remote-embedder failure should NOT strip
+        # the row's existing vector off. Scout finding: this used to silently
+        # delete semantic-search reachability on every edit while remote was
+        # down.
+        if embedding_blob is not None:
+            cursor.execute(
+                'UPDATE memories SET content = ?, keywords = ?, label = ?, '
+                'embedding = ?, embedding_provider = ?, embedding_dim = ?, '
+                'timestamp = CURRENT_TIMESTAMP WHERE id = ? AND scope = ?',
+                (content, keywords, label, embedding_blob,
+                 embedding_provider, embedding_dim, memory_id, scope)
+            )
+        else:
+            cursor.execute(
+                'UPDATE memories SET content = ?, keywords = ?, label = ?, '
+                'timestamp = CURRENT_TIMESTAMP WHERE id = ? AND scope = ?',
+                (content, keywords, label, memory_id, scope)
+            )
         conn.commit()
     try:
         from core.mind_events import publish_mind_changed
@@ -763,26 +781,47 @@ async def find_duplicate_memories(request: Request, _=Depends(require_login)):
     default_thresh = getattr(config, 'MEMORY_DEDUP_THRESHOLD', 0.92)
     threshold = float(request.query_params.get('threshold', str(default_thresh)))
 
+    # Dedup is only meaningful within a single vector space. Pull only rows
+    # that share the currently-active provider's stamp — mixing spaces in
+    # np.stack blows up, and even same-dim across different models produces
+    # nonsense similarity scores that'd get surfaced as "duplicates".
+    embedder = memory._get_embedder()
+    active_provider = getattr(embedder, 'provider_id', None) if embedder else None
+
     with memory._get_connection() as conn:
         cursor = conn.cursor()
         scope_sql, scope_params = memory._scope_condition(scope)
         cursor.execute(
-            f'SELECT id, content, timestamp, label, embedding FROM memories WHERE {scope_sql} AND embedding IS NOT NULL ORDER BY timestamp',
-            scope_params
+            f'SELECT id, content, timestamp, label, embedding, embedding_dim FROM memories '
+            f'WHERE {scope_sql} AND embedding IS NOT NULL AND embedding_provider = ? '
+            f'ORDER BY timestamp',
+            scope_params + [active_provider]
         )
         rows = cursor.fetchall()
 
     if len(rows) < 2:
         return {"pairs": [], "count": 0}
 
-    # Load all embeddings into a matrix for fast comparison
+    # Load embeddings, filtering out any stray shape mismatches defensively.
     ids, contents, timestamps, labels, embeddings = [], [], [], [], []
-    for row_id, content, ts, lbl, emb_blob in rows:
+    expected_dim = rows[0][5]
+    for row_id, content, ts, lbl, emb_blob, stored_dim in rows:
+        if stored_dim != expected_dim:
+            continue
+        try:
+            vec = np.frombuffer(emb_blob, dtype=np.float32)
+            if vec.shape[0] != expected_dim:
+                continue
+        except Exception:
+            continue
         ids.append(row_id)
         contents.append(content)
         timestamps.append(ts)
         labels.append(lbl)
-        embeddings.append(np.frombuffer(emb_blob, dtype=np.float32))
+        embeddings.append(vec)
+
+    if len(embeddings) < 2:
+        return {"pairs": [], "count": 0}
 
     emb_matrix = np.stack(embeddings)  # (N, D)
 

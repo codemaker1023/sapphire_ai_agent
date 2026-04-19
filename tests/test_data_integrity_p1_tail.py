@@ -91,9 +91,14 @@ def test_backfill_embeddings_populates_missing(isolated_memory, monkeypatch):
     conn.close()
     assert null_count == 2
 
-    # Now patch embedder to return real bytes, run backfill
+    # Now patch embedder to return real bytes, run backfill.
+    # provider_id/dimension are required — MagicMock would otherwise return
+    # a nested MagicMock for those attributes and the INSERT would fail
+    # binding a MagicMock as a sqlite parameter.
     emb = MagicMock()
     emb.available = True
+    emb.provider_id = 'test:backfill'
+    emb.dimension = 1024
     import numpy as np
     emb.embed.return_value = np.array([[0.1] * 1024, [0.2] * 1024], dtype=np.float32)
 
