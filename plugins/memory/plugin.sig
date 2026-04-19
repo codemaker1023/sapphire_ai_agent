@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "files": {
     "plugin.json": "sha256:16ec037a670b7ea513bcb35c1618a5fcf872f6f0d9faadb36261fecaf665e3af",
-    "tools/goals_tools.py": "sha256:e7d9d0a96689360e976d0e642d2d0d7b7ba568086ff03e143826ea3585da199d",
-    "tools/knowledge_tools.py": "sha256:7d486b1e61325afc2c7fc6faafc2c108c322d8c91a3236bbe0a866bf87a3274f",
-    "tools/memory_tools.py": "sha256:fb03acb6153f72296d3b7f65a6e2c54416ab958624d6cb488b73d731c53a6d3a"
+    "tools/goals_tools.py": "sha256:a16ec7fda07c3ceb1a5867481230f5544575ba798c6fdaf75903d12000010c06",
+    "tools/knowledge_tools.py": "sha256:40e955b71a6239b506a8adee7de84b31a2eef8c8c31b9f3f946d5d5550cd4232",
+    "tools/memory_tools.py": "sha256:b179e94d53a6e0f526d39aa19e82a10b81d59a2d706060bf7a5040ba886adf75"
   },
-  "signature": "48KDX04wiVj4or1h0cppklpjlHPyyK7IVhqvkgw/1dlB034BVCNbzuJSV2wgUg0IX/TPmizv9SXH02/eInhMDw=="
+  "signature": "23xiQOwkOVNmE955ltQVkHc3IGL/O9RNw8Rly/bbLUzP0QrVkobgu+MIrmueYQqI7Sbgs8bU+G9YkZmRES6mAA=="
 }

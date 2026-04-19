@@ -441,17 +441,25 @@ def create_goal_api(title, description=None, priority='medium', parent_id=None, 
         )
         goal_id = cursor.lastrowid
         conn.commit()
-        return goal_id
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope, 'save')
+    except Exception:
+        pass
+    return goal_id
 
 
 def update_goal_api(goal_id, **kwargs):
     """Update goal fields. Returns True on success. Raises ValueError on failure.
     No permanent guard here — this is the user/UI path with full control."""
+    scope_for_event = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM goals WHERE id = ?', (goal_id,))
-        if not cursor.fetchone():
+        cursor.execute('SELECT id, scope FROM goals WHERE id = ?', (goal_id,))
+        row = cursor.fetchone()
+        if not row:
             raise ValueError(f"Goal [{goal_id}] not found")
+        scope_for_event = row[1]
 
         updates, params = [], []
         for field in ('title', 'description', 'priority', 'status'):
@@ -488,23 +496,36 @@ def update_goal_api(goal_id, **kwargs):
             cursor.execute('INSERT INTO goal_progress (goal_id, note) VALUES (?, ?)', (goal_id, progress_note.strip()))
 
         conn.commit()
-        return True
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope_for_event or 'default', 'update')
+    except Exception:
+        pass
+    return True
 
 
 def add_progress_note(goal_id, note):
     """Add a progress note to a goal. Returns the note ID."""
     if not note or not note.strip():
         raise ValueError("Note cannot be empty")
+    scope_for_event = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM goals WHERE id = ?', (goal_id,))
-        if not cursor.fetchone():
+        cursor.execute('SELECT id, scope FROM goals WHERE id = ?', (goal_id,))
+        row = cursor.fetchone()
+        if not row:
             raise ValueError(f"Goal [{goal_id}] not found")
+        scope_for_event = row[1]
         cursor.execute('INSERT INTO goal_progress (goal_id, note) VALUES (?, ?)', (goal_id, note.strip()))
         note_id = cursor.lastrowid
         cursor.execute('UPDATE goals SET updated_at = ? WHERE id = ?', (datetime.now().isoformat(), goal_id))
         conn.commit()
-        return note_id
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope_for_event or 'default', 'update')
+    except Exception:
+        pass
+    return note_id
 
 
 def delete_goal_api(goal_id, cascade=True, force=False):
@@ -514,13 +535,14 @@ def delete_goal_api(goal_id, cascade=True, force=False):
     icon click wiping a standing duty. The AI-facing _delete_goal blocks
     permanent unconditionally; the UI path gives an informed override.
     """
+    scope_for_event = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT title, permanent FROM goals WHERE id = ?', (goal_id,))
+        cursor.execute('SELECT title, permanent, scope FROM goals WHERE id = ?', (goal_id,))
         row = cursor.fetchone()
         if not row:
             raise ValueError(f"Goal [{goal_id}] not found")
-        title, is_permanent = row[0], bool(row[1])
+        title, is_permanent, scope_for_event = row[0], bool(row[1]), row[2]
         if is_permanent and not force:
             raise ValueError(
                 f"Goal [{goal_id}] is permanent — pass force=true to delete"
@@ -535,7 +557,12 @@ def delete_goal_api(goal_id, cascade=True, force=False):
             cursor.execute('DELETE FROM goals WHERE parent_id = ?', (goal_id,))
         cursor.execute('DELETE FROM goals WHERE id = ?', (goal_id,))
         conn.commit()
-        return title
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope_for_event or 'default', 'delete')
+    except Exception:
+        pass
+    return title
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -688,6 +715,11 @@ def _create_goal(title, description=None, priority='medium', parent_id=None, sco
     parent_note = f" under goal [{parent_id}]" if parent_id else ""
     perm_note = " [PERMANENT]" if permanent else ""
     logger.info(f"Created {kind.lower()} [{goal_id}] '{title}' ({priority}) in scope '{scope}'{parent_note}{perm_note}")
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope, 'save')
+    except Exception:
+        pass
     return f"{kind} created: [{goal_id}] {title} ({priority}){parent_note}{perm_note}", True
 
 
@@ -1014,6 +1046,11 @@ def _update_goal(goal_id, scope='default', **kwargs):
         changes.append(f"logged: {progress_note[:80]}{'...' if len(progress_note) > 80 else ''}")
 
     logger.info(f"Updated goal [{goal_id}]: {', '.join(changes)}")
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope, 'update')
+    except Exception:
+        pass
     return f"Goal [{goal_id}] updated: {', '.join(changes)}{parent_hint}", True
 
 
@@ -1062,6 +1099,11 @@ def _delete_goal(goal_id, cascade=True, scope='default'):
         sub_note = f" and {subtask_count} subtask(s)" if cascade else f" ({subtask_count} subtasks promoted to top-level)"
 
     logger.info(f"Deleted goal [{goal_id}] '{title}'{sub_note}")
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('goal', scope, 'delete')
+    except Exception:
+        pass
     return f"Deleted goal [{goal_id}] '{title}'{sub_note}", True
 
 

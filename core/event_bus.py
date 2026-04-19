@@ -246,6 +246,16 @@ class Events:
     DAEMON_EVENT = "daemon_event"
     WEBHOOK_FIRED = "webhook_fired"
 
+    # Mind-data changed events — fired when the AI writes to memory/goal/
+    # knowledge/people stores so the Mind view can live-refresh instead of
+    # showing stale content after a save. Payload: {domain, scope, action}
+    # where domain in {memory, goal, knowledge, people}, action in
+    # {save, update, delete}. Without this event the user sees "done"
+    # from Sapphire but their Mind tab doesn't update — can't tell the
+    # difference between "tool silently failed" and "tool worked, view
+    # stale." AIX-class bug. (Added 2026-04-19 after Scout 3 dispatch.)
+    MIND_CHANGED = "mind_changed"
+
     # Agent events
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETED = "agent_completed"

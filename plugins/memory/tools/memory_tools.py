@@ -603,6 +603,11 @@ def _save_memory(content: str, label: str = None, scope: str = 'default') -> tup
 
         label_str = f", label: {label}" if label else ""
         logger.info(f"Stored memory ID {memory_id} in scope '{scope}'{label_str}")
+        try:
+            from core.mind_events import publish_mind_changed
+            publish_mind_changed('memory', scope, 'save')
+        except Exception:
+            pass
         return f"Memory saved (ID: {memory_id}{label_str})", True
 
     except Exception as e:
@@ -796,6 +801,11 @@ def _delete_memory(memory_id: int, scope: str = 'default') -> tuple:
             conn.commit()
         preview = row[1][:50] + ('...' if len(row[1]) > 50 else '')
         logger.info(f"Deleted memory ID {memory_id} from scope '{scope}'")
+        try:
+            from core.mind_events import publish_mind_changed
+            publish_mind_changed('memory', scope, 'delete')
+        except Exception:
+            pass
         return f"Deleted memory [{memory_id}]: {preview}", True
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")

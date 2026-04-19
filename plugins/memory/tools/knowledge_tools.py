@@ -541,7 +541,7 @@ def create_or_update_person(name, relationship=None, phone=None, email=None, add
             params.append(pid)
             cursor.execute(f'UPDATE people SET {", ".join(updates)} WHERE id = ?', params)
             conn.commit()
-            return pid, False  # (id, is_new)
+            is_new_flag = False
         else:
             cursor.execute(
                 'INSERT INTO people (name, relationship, phone, email, address, notes, scope, embedding, updated_at, email_whitelisted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -549,7 +549,13 @@ def create_or_update_person(name, relationship=None, phone=None, email=None, add
             )
             pid = cursor.lastrowid
             conn.commit()
-            return pid, True
+            is_new_flag = True
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('people', scope, 'save' if is_new_flag else 'update')
+    except Exception:
+        pass
+    return pid, is_new_flag
 
 
 def delete_person(person_id):
@@ -562,7 +568,12 @@ def delete_person(person_id):
             return False
         cursor.execute('DELETE FROM people WHERE id = ? AND scope = ?', (person_id, scope))
         conn.commit()
-        return True
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('people', scope, 'delete')
+    except Exception:
+        pass
+    return True
 
 
 # ─── Knowledge Tabs CRUD ─────────────────────────────────────────────────────
@@ -608,6 +619,7 @@ def get_tab_entries(tab_id, scope=None):
 
 
 def create_tab(name, scope='default', description=None, tab_type='user'):
+    tab_id = None
     with _get_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -617,9 +629,14 @@ def create_tab(name, scope='default', description=None, tab_type='user'):
             )
             tab_id = cursor.lastrowid
             conn.commit()
-            return tab_id
         except sqlite3.IntegrityError:
             return None  # Already exists
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('knowledge', scope, 'save')
+    except Exception:
+        pass
+    return tab_id
 
 
 def update_tab(tab_id, name=None, description=None):
@@ -638,20 +655,34 @@ def update_tab(tab_id, name=None, description=None):
         cursor.execute(f'UPDATE knowledge_tabs SET {", ".join(updates)} WHERE id = ? AND scope = ?', params)
         changed = cursor.rowcount > 0
         conn.commit()
-        return changed
+    if changed:
+        try:
+            from core.mind_events import publish_mind_changed
+            publish_mind_changed('knowledge', scope, 'update')
+        except Exception:
+            pass
+    return changed
 
 
 def delete_tab(tab_id):
     scope = _get_current_scope()
+    tab_scope_for_event = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT name FROM knowledge_tabs WHERE id = ? AND scope = ?', (tab_id, scope))
-        if not cursor.fetchone():
+        cursor.execute('SELECT name, scope FROM knowledge_tabs WHERE id = ? AND scope = ?', (tab_id, scope))
+        row = cursor.fetchone()
+        if not row:
             return False
+        tab_scope_for_event = row[1]
         cursor.execute('DELETE FROM knowledge_entries WHERE tab_id = ?', (tab_id,))
         cursor.execute('DELETE FROM knowledge_tabs WHERE id = ? AND scope = ?', (tab_id, scope))
         conn.commit()
-        return True
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('knowledge', tab_scope_for_event or scope, 'delete')
+    except Exception:
+        pass
+    return True
 
 
 # ─── Knowledge Entries CRUD ───────────────────────────────────────────────────
@@ -687,8 +718,17 @@ def add_entry(tab_id, content, chunk_index=0, source_filename=None):
         # Bump tab updated_at
         cursor.execute('UPDATE knowledge_tabs SET updated_at = ? WHERE id = ?',
                        (datetime.now().isoformat(), tab_id))
+        cursor.execute('SELECT scope FROM knowledge_tabs WHERE id = ?', (tab_id,))
+        tab_row = cursor.fetchone()
+        tab_scope = tab_row[0] if tab_row else None
         conn.commit()
-        return entry_id
+    try:
+        from core.mind_events import publish_mind_changed
+        if tab_scope:
+            publish_mind_changed('knowledge', tab_scope, 'save')
+    except Exception:
+        pass
+    return entry_id
 
 
 def update_entry(entry_id, content):
@@ -699,6 +739,7 @@ def update_entry(entry_id, content):
         if embs is not None:
             embedding_blob = embs[0].tobytes()
 
+    tab_scope = None
     with _get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -706,19 +747,43 @@ def update_entry(entry_id, content):
             (content, embedding_blob, datetime.now().isoformat(), entry_id)
         )
         changed = cursor.rowcount > 0
+        if changed:
+            cursor.execute('''
+                SELECT t.scope FROM knowledge_tabs t JOIN knowledge_entries e
+                ON e.tab_id = t.id WHERE e.id = ?
+            ''', (entry_id,))
+            row = cursor.fetchone()
+            tab_scope = row[0] if row else None
         conn.commit()
-        return changed
+    if changed and tab_scope:
+        try:
+            from core.mind_events import publish_mind_changed
+            publish_mind_changed('knowledge', tab_scope, 'update')
+        except Exception:
+            pass
+    return changed
 
 
 def delete_entry(entry_id):
+    tab_scope = None
     with _get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM knowledge_entries WHERE id = ?', (entry_id,))
-        if not cursor.fetchone():
+        cursor.execute('''
+            SELECT t.scope FROM knowledge_tabs t JOIN knowledge_entries e
+            ON e.tab_id = t.id WHERE e.id = ?
+        ''', (entry_id,))
+        row = cursor.fetchone()
+        if not row:
             return False
+        tab_scope = row[0]
         cursor.execute('DELETE FROM knowledge_entries WHERE id = ?', (entry_id,))
         conn.commit()
-        return True
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('knowledge', tab_scope, 'delete')
+    except Exception:
+        pass
+    return True
 
 
 def delete_entries_by_filename(tab_id, filename):

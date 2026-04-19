@@ -3,6 +3,7 @@ import * as ui from '../ui.js';
 import { showExportDialog, showImportDialog } from '../shared/import-export.js';
 import { setupModalClose } from '../shared/modal.js';
 import { getInitData } from '../shared/init-data.js';
+import { on as onBusEvent, Events as BusEvents } from '../core/event-bus.js';
 
 function csrfHeaders(extra = {}) {
     const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -22,6 +23,7 @@ const MEMORIES_PER_PAGE = 100;
 export default {
     init(el) {
         container = el;
+        subscribeMindSse();
     },
     async show() {
         if (window._mindTab) {
@@ -56,6 +58,38 @@ const _TAB_TO_SCOPE_KEY = {
     'ai-notes': 'knowledge_scope',
     goals: 'goal_scope',
 };
+
+// Each Mind tab corresponds to a server-side MIND_CHANGED domain. Used by the
+// SSE handler below to decide whether an incoming event is relevant to the
+// currently-visible tab. 'ai-notes' and 'knowledge' share the knowledge
+// domain on the server (same tables, filtered by tab type on the client).
+const _DOMAIN_FOR_TAB = {
+    memories: 'memory',
+    people: 'people',
+    knowledge: 'knowledge',
+    'ai-notes': 'knowledge',
+    goals: 'goal',
+};
+
+let _mindSseSubscribed = false;
+
+function subscribeMindSse() {
+    // Subscribe once — init() may be called more than once as views cycle.
+    if (_mindSseSubscribed) return;
+    _mindSseSubscribed = true;
+    onBusEvent(BusEvents.MIND_CHANGED, (data) => {
+        if (!data || !container || !container.isConnected) return;
+        // Skip when Mind view isn't currently visible (offsetParent is null
+        // when the element is display:none or its parent is). No point
+        // re-fetching for a view the user can't see.
+        if (container.offsetParent === null) return;
+        const { domain, scope } = data;
+        if (!domain || !scope) return;
+        if (scope !== currentScope) return;
+        if (_DOMAIN_FOR_TAB[activeTab] !== domain) return;
+        renderContent();
+    });
+}
 
 async function _scopeForActiveChatTab(tab) {
     // Returns the scope name the active chat uses for `tab`'s domain, or

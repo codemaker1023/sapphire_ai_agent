@@ -634,7 +634,16 @@ class ContinuityScheduler:
     # =========================================================================
     
     def run_task_now(self, task_id: str) -> Dict[str, Any]:
-        """Manually trigger a task immediately (for testing). Runs synchronously."""
+        """Manually trigger a task immediately (for testing). Runs synchronously.
+
+        Note on concurrent-scope safety: this runs the task on the caller's
+        thread, potentially interleaving with the active chat. Scope bleed is
+        prevented by `ExecutionContext.__enter__` (core/continuity/execution_context.py)
+        which calls `reset_scopes()` at entry — the task always starts with a
+        clean scope slate, never inheriting from whatever request triggered
+        the manual run. Scout-4 "Race #5" (2026-04-19) is architecturally
+        neutralized there; do not re-hunt without checking ExecutionContext.
+        """
         with self._lock:
             task = self._tasks.get(task_id)
 

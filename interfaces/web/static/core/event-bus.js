@@ -243,6 +243,10 @@ export const Events = {
     PLUGIN_RELOADED: 'plugin_reloaded',
     PLUGIN_LOAD_ERROR: 'plugin_load_error',
 
+    // Mind data changed — tool or UI wrote to memory/goal/knowledge/people.
+    // Payload: {domain, scope, action}. Mind view uses it to live-refresh.
+    MIND_CHANGED: 'mind_changed',
+
     // Agent events
     AGENT_SPAWNED: 'agent_spawned',
     AGENT_COMPLETED: 'agent_completed',

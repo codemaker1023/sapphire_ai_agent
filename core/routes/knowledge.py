@@ -711,6 +711,11 @@ async def update_memory(memory_id: int, request: Request, _=Depends(require_logi
             (content, keywords, label, embedding_blob, memory_id, scope)
         )
         conn.commit()
+    try:
+        from core.mind_events import publish_mind_changed
+        publish_mind_changed('memory', scope, 'update')
+    except Exception:
+        pass
     return {"updated": memory_id}
 
 
