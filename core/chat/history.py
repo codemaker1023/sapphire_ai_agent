@@ -1316,13 +1316,21 @@ class ChatSessionManager:
             return [name for name, _ in affected]
 
         affected_names = [name for name, _ in affected]
-        # If the active chat was touched, reload its in-memory settings so the
-        # next get_chat_settings() sees the rewrite.
+        # If the active chat was touched, reload its in-memory settings AND
+        # re-apply to ContextVars. Without the re-apply, the ContextVar keeps
+        # the pre-sweep value (the now-deleted scope name), so the AI writes
+        # into a ghost scope even though the chat file is correct. Found this
+        # herring in my own fix — the in-memory current_settings dict and the
+        # ContextVar were a two-source-of-truth problem.
         if self.active_chat_name in affected_names:
             try:
                 self._load_chat(self.active_chat_name)
+                from core.chat.function_manager import apply_scopes_from_settings
+                # `fm` arg is legacy/unused (the function reads SCOPE_REGISTRY
+                # directly), so None is safe here
+                apply_scopes_from_settings(None, self.current_settings)
             except Exception as e:
-                logger.warning(f"reload after scope sweep failed: {e}")
+                logger.warning(f"reload+apply after scope sweep failed: {e}")
 
         for name in affected_names:
             try:

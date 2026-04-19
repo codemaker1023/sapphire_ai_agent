@@ -131,6 +131,34 @@ def test_reset_chat_scope_ref_reloads_active_chat(session_manager_with_chats):
     assert sm.get_chat_settings()['memory_scope'] == 'default'
 
 
+def test_reset_chat_scope_ref_reapplies_contextvars_for_active_chat(
+    session_manager_with_chats, scope_snapshot, monkeypatch,
+):
+    """[REGRESSION_GUARD] The active chat's ContextVars must ALSO re-apply
+    after a sweep, not just the in-memory dict. Found a herring in my own
+    fix — without the re-apply, the AI keeps writing into the dead scope
+    even though the chat file is correct. Two-source-of-truth trap.
+    """
+    from core.chat.function_manager import (
+        SCOPE_REGISTRY, register_plugin_scope, apply_scopes_from_settings,
+    )
+    sm = session_manager_with_chats
+    sm.set_active_chat('chat_work')
+
+    # Seed the memory ContextVar to the soon-to-be-deleted scope, as
+    # apply_scopes_from_settings would during normal chat activation
+    apply_scopes_from_settings(None, sm.get_chat_settings())
+    assert SCOPE_REGISTRY['memory']['var'].get() == 'work'
+
+    # Sweep — should reload dict AND re-apply ContextVar
+    sm.reset_chat_scope_ref('memory_scope', 'work')
+
+    assert sm.get_chat_settings()['memory_scope'] == 'default'
+    # This is the real guard: ContextVar follows disk state
+    assert SCOPE_REGISTRY['memory']['var'].get() == 'default', \
+        "ContextVar not re-applied after sweep — AI would keep writing to dead scope"
+
+
 # ─── Helper fires from each delete_scope call site ───────────────────────────
 
 def _stub_system_with_session_manager(session_manager, monkeypatch):
