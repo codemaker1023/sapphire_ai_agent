@@ -27,28 +27,48 @@ CSRF=$(curl -sk -c "$COOKIE_JAR" "$BASE/login" | grep -oP 'name="csrf_token"\s+v
 curl -sk -b "$COOKIE_JAR" -c "$COOKIE_JAR" -X POST "$BASE/login" \
     -d "password=$PASSWORD&csrf_token=$CSRF" -o /dev/null
 
-# Escape message for JSON
-ESCAPED_MSG=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$FULL_MESSAGE")
+# Fetch the target chat's configured settings so the continuity task inherits
+# the chat's persona + scopes + toolset instead of forcing 'sapphire' / 'default'.
+# Without this, messaging a chat configured for a different persona (e.g.
+# 'rook' in the lookout chat) would route the response through the Sapphire
+# prompt regardless — the bug user reported 2026-04-19.
+CHAT_SETTINGS_RAW=$(curl -sk -b "$COOKIE_JAR" -H "X-CSRF-Token: $CSRF" \
+    "$BASE/api/chats/$CHAT/settings" 2>/dev/null || echo '{}')
+
+# Build the task body in Python so message escaping + settings merge are
+# handled together cleanly. Values come in via env vars so nothing has to
+# be shell-quoted a second time.
+TASK_BODY=$(CHAT_RAW="$CHAT_SETTINGS_RAW" CHAT_NAME="$CHAT" MSG="$FULL_MESSAGE" python3 <<'PY'
+import json, os
+try:
+    raw = json.loads(os.environ.get('CHAT_RAW') or '{}')
+except json.JSONDecodeError:
+    raw = {}
+s = raw.get('settings', {}) if isinstance(raw, dict) else {}
+body = {
+    "name": "claude-code-msg",
+    "type": "task",
+    "enabled": True,
+    "schedule": "0 0 31 2 *",
+    "toolset": s.get('toolset') or s.get('ability') or 'all',
+    "prompt": s.get('persona') or s.get('prompt') or 'sapphire',
+    "chat_target": os.environ['CHAT_NAME'],
+    "initial_message": os.environ['MSG'],
+    "tts_enabled": False,
+    "memory_scope": s.get('memory_scope') or 'default',
+    "knowledge_scope": s.get('knowledge_scope') or 'default',
+    "people_scope": s.get('people_scope') or 'default',
+    "goal_scope": s.get('goal_scope') or 'default',
+}
+print(json.dumps(body))
+PY
+)
 
 # Create one-shot task
 TASK_RESULT=$(curl -sk -b "$COOKIE_JAR" -H "X-CSRF-Token: $CSRF" \
     -H "Content-Type: application/json" \
     -X POST "$BASE/api/continuity/tasks" \
-    -d "{
-        \"name\": \"claude-code-msg\",
-        \"type\": \"task\",
-        \"enabled\": true,
-        \"schedule\": \"0 0 31 2 *\",
-        \"toolset\": \"all\",
-        \"prompt\": \"sapphire\",
-        \"chat_target\": \"$CHAT\",
-        \"initial_message\": $ESCAPED_MSG,
-        \"tts_enabled\": false,
-        \"memory_scope\": \"default\",
-        \"knowledge_scope\": \"default\",
-        \"people_scope\": \"default\",
-        \"goal_scope\": \"default\"
-    }")
+    -d "$TASK_BODY")
 
 TASK_ID=$(echo "$TASK_RESULT" | python3 -c "
 import sys, json
