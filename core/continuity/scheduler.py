@@ -783,7 +783,7 @@ class ContinuityScheduler:
 
         # Build response callback — saves last_response + routes reply to daemon source
         internal_cb = self._make_response_callback(task_id)
-        def _make_reply_cb(cur_event_data, cur_reply_callback):
+        def _make_reply_cb(cur_task, cur_event_data, cur_reply_callback):
             def _response_callback(response_text: str):
                 internal_cb(response_text)
                 if cur_reply_callback and response_text:
@@ -792,7 +792,7 @@ class ContinuityScheduler:
                     except (json.JSONDecodeError, TypeError):
                         event_dict = {"raw": cur_event_data}
                     try:
-                        cur_reply_callback(task, event_dict, response_text)
+                        cur_reply_callback(cur_task, event_dict, response_text)
                     except Exception as e:
                         logger.error(f"[Continuity] Reply callback failed for '{task_name}': {e}")
             return _response_callback
@@ -803,7 +803,13 @@ class ContinuityScheduler:
         def _run():
             nonlocal cur_event_data, cur_reply_callback
             while True:
-                # Check task still exists and is enabled
+                # Re-fetch live task per iteration. The outer `task` is a
+                # snapshot from the moment this event fired; if the user
+                # edits the task config, swaps prompt/toolset, or the plugin
+                # reloads between queue-drain iterations, we'd keep running
+                # the stale snapshot forever. Also used for the reply
+                # callback so replies carry the task state as of THIS
+                # iteration (not spawn-time).
                 with self._lock:
                     live_task = self._tasks.get(task_id)
                     if not live_task or not live_task.get("enabled", True):
@@ -811,14 +817,15 @@ class ContinuityScheduler:
                         self._task_running[task_id] = False
                         self._task_progress.pop(task_id, None)
                         break
+                    active_task = dict(live_task)
 
                 self._log_activity(task_id, task_name, "started", {"trigger": task_type})
                 try:
                     result = self.executor.run(
-                        task,
+                        active_task,
                         event_data=cur_event_data,
                         progress_callback=self._make_progress_callback(task_id),
-                        response_callback=_make_reply_cb(cur_event_data, cur_reply_callback),
+                        response_callback=_make_reply_cb(active_task, cur_event_data, cur_reply_callback),
                     )
                     with self._lock:
                         if task_id in self._tasks:
