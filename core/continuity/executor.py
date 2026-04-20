@@ -349,17 +349,15 @@ class ContinuityExecutor:
         from core.continuity.execution_context import ExecutionContext
 
         session_manager = self.system.llm_chat.session_manager
+        original_voice: Dict[str, Any] = {}
         self._voice_lock.acquire()
-        voice_applied = False
         try:
             original_voice = self._snapshot_voice()
-            try:
-                self._apply_voice(task)
-                voice_applied = True
-            except Exception:
-                self._restore_voice(original_voice)
-                raise
+            self._apply_voice(task)
         except Exception:
+            # Apply failed — restore whatever we captured and release BEFORE re-raising.
+            try: self._restore_voice(original_voice)
+            except Exception: pass
             self._voice_lock.release()
             raise
         target_chat = task.get("chat_target", "").strip()
@@ -472,8 +470,14 @@ class ContinuityExecutor:
             })
 
         finally:
-            with self._voice_lock:
+            # Voice lock is already held by this thread from the acquire above —
+            # re-acquiring via `with self._voice_lock:` would deadlock against
+            # ourselves (threading.Lock is NON-reentrant). Just restore + release.
+            try:
                 self._restore_voice(original_voice)
+            except Exception as _e:
+                logger.warning(f"[Continuity] _restore_voice in finally failed: {_e}")
+            self._voice_lock.release()
 
         result["completed_at"] = datetime.now().isoformat()
         return result
