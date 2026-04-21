@@ -56,18 +56,34 @@ def _get_or_create_key() -> str:
 def _generate_and_save() -> str:
     _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     key = secrets.token_urlsafe(32)
-    # Atomic write: tmp + rename
+    # Atomic write with pre-restricted permissions. Previously we used
+    # write_text + replace + chmod — which left the final key file at umask
+    # default (0644) for the window between rename and chmod. Any local user
+    # stat-ing the path during that window could read the bearer. Now the
+    # tmp file is created via O_CREAT|O_EXCL at mode 0o600 BEFORE any bytes
+    # are written, so the file is never world-readable for any instant.
+    # Privacy scout re-tap finding #1 — 2026-04-20.
     tmp = _KEY_FILE.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps({'key': key}, indent=2), encoding='utf-8')
+    data = json.dumps({'key': key}, indent=2).encode('utf-8')
+    # Clear any stale tmp from a prior crashed write before O_EXCL create.
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass
+    # Open with exclusive create + owner-only perms, then write.
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
     tmp.replace(_KEY_FILE)
-    # Restrict to owner-read/write only. `write_text` under default umask
-    # lands as 0644 → any local user can cat the bearer token. chmod AFTER
-    # rename (NamedTemporaryFile would be 0600 by default but .write_text
-    # + .replace drops back to umask). Scout finding 2026-04-20.
+    # Belt-and-suspenders: chmod after rename in case the filesystem or a
+    # quirky platform (e.g. Windows mount, some network FS) ignored the mode
+    # arg to os.open. No-op on Linux when the open-mode took effect.
     try:
         os.chmod(_KEY_FILE, 0o600)
     except Exception as e:
-        logger.warning(f"[claude-code-persona] chmod 0600 failed on key file: {e}")
+        logger.warning(f"[claude-code-persona] chmod 0600 belt-check failed: {e}")
     logger.info("[claude-code-persona] Generated new MCP bearer key")
     return key
 

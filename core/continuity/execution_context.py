@@ -236,9 +236,20 @@ class ExecutionContext:
             msg_start_idx = len(messages)
             messages.append({"role": "user", "content": user_input})
 
-        max_iterations = self.task_settings.get("max_tool_rounds") or config.MAX_TOOL_ITERATIONS
-        max_parallel = self.task_settings.get("max_parallel_tools") or config.MAX_PARALLEL_TOOLS
-        context_limit = self.task_settings.get("context_limit") or getattr(config, 'CONTEXT_LIMIT', 0)
+        # `or config.X` coerces falsy values to the default — but an explicit
+        # 0 is a valid-looking-but-actually-lethal value here: max_parallel=0
+        # slices tool_calls to empty, assistant keeps re-requesting the same
+        # tools, infinite loop to iterations cap. Use None-check so explicit
+        # 0 is either honored (for context_limit: 0 meaning "unlimited") or
+        # coerced to 1 (for tool rounds/parallel which can't be 0).
+        # Chaos scout #5/#10 — 2026-04-20.
+        _rounds = self.task_settings.get("max_tool_rounds")
+        max_iterations = max(1, _rounds if _rounds is not None else config.MAX_TOOL_ITERATIONS)
+        _parallel = self.task_settings.get("max_parallel_tools")
+        max_parallel = max(1, _parallel if _parallel is not None else config.MAX_PARALLEL_TOOLS)
+        # context_limit: 0 IS a legitimate "no limit" signal; only None falls through.
+        _ctx = self.task_settings.get("context_limit")
+        context_limit = _ctx if _ctx is not None else getattr(config, 'CONTEXT_LIMIT', 0)
 
         logger.info(f"[ExecCtx] Running: provider='{self.provider_key}', "
                      f"tools={len(self.tools) if self.tools else 0}, "

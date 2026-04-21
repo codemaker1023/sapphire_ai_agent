@@ -408,9 +408,37 @@ class OpenAICompatProvider(BaseProvider):
         generation_params: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         """Send non-streaming chat completion request."""
-        
+
         params = self._transform_params_for_model(generation_params or {})
-        
+
+        # Some OpenAI-compat providers (Zhipu GLM, others) enforce:
+        #   "Requests with max_tokens > 4096 must have stream=true"
+        # at the endpoint. The non-streaming path here would silently 400 for
+        # any caller (voice path, continuity tasks, agents) whose gen_params
+        # exceed that threshold. Rather than cap max_tokens or force callers
+        # to track provider quirks, when we'd cross the gate we consume the
+        # streaming endpoint internally and return the same LLMResponse the
+        # non-streaming path would have produced. Caller sees no behavior
+        # change. Bug surfaced on voice + glm51 (max_tokens=8192) 2026-04-20.
+        mt = params.get('max_tokens') or 0
+        if mt and mt > 4096:
+            logger.info(
+                f"[OPENAI-COMPAT] max_tokens={mt} > 4096 — using streaming "
+                f"internally to satisfy provider stream-required contract; "
+                f"caller still receives a single LLMResponse."
+            )
+            final = None
+            for event in self.chat_completion_stream(messages, tools=tools,
+                                                     generation_params=generation_params):
+                if event.get("type") == "done":
+                    final = event.get("response")
+            if final is None:
+                raise ValueError(
+                    "Internal stream-accumulate produced no 'done' event — "
+                    "provider may have closed the stream without finishing."
+                )
+            return final
+
         # Sanitize messages - only keep fields the OpenAI API understands
         clean_messages = self._sanitize_messages(messages)
         

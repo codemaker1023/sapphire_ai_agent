@@ -556,6 +556,86 @@ def test_canary_rejects_blatantly_non_normalized():
     assert "non-normalized" in msg.lower() or "norm" in msg.lower()
 
 
+def test_openai_compat_long_max_tokens_auto_streams(monkeypatch):
+    """When max_tokens > 4096 (Zhipu GLM + others reject non-streaming),
+    chat_completion must internally consume the streaming endpoint and
+    return a regular LLMResponse so callers (voice path, agents) don't
+    care about provider quirks. Bug from glm51 + voice path 2026-04-20."""
+    from core.chat.llm_providers.openai_compat import OpenAICompatProvider
+    from core.chat.llm_providers.base import LLMResponse
+
+    # Build a minimal provider instance without going through __init__ (which
+    # needs a full config). We only exercise chat_completion here.
+    provider = OpenAICompatProvider.__new__(OpenAICompatProvider)
+
+    def _fake_transform(params):
+        return dict(params)
+    provider._transform_params_for_model = _fake_transform  # type: ignore
+
+    # Replace chat_completion_stream with a fake that yields a 'done' event.
+    expected_resp = LLMResponse(content="long reply", tool_calls=[], finish_reason="stop", usage=None)
+    stream_called = {"n": 0}
+
+    def _fake_stream(messages, tools=None, generation_params=None):
+        stream_called["n"] += 1
+        yield {"type": "content", "text": "long reply"}
+        yield {"type": "done", "response": expected_resp}
+    provider.chat_completion_stream = _fake_stream  # type: ignore
+
+    # Call with max_tokens > 4096 — should go through the streaming path.
+    result = provider.chat_completion(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        generation_params={"max_tokens": 8192},
+    )
+    assert result is expected_resp, "chat_completion should return the accumulated LLMResponse"
+    assert stream_called["n"] == 1, "streaming endpoint should have been used internally"
+
+
+def test_openai_compat_low_max_tokens_does_not_stream(monkeypatch):
+    """When max_tokens <= 4096, the non-streaming path is taken as before —
+    we don't want to always-stream, just when the gate would trip."""
+    from core.chat.llm_providers.openai_compat import OpenAICompatProvider
+
+    provider = OpenAICompatProvider.__new__(OpenAICompatProvider)
+    provider._transform_params_for_model = lambda p: dict(p)  # type: ignore
+    provider.model = "fake-model"  # used in logging
+    provider._fireworks_session_id = None  # attr check in non-streaming path
+    provider._is_fireworks_reasoning_model = lambda: False  # type: ignore
+
+    stream_called = {"n": 0}
+
+    def _fake_stream(*a, **kw):
+        stream_called["n"] += 1
+        yield {"type": "done", "response": None}
+    provider.chat_completion_stream = _fake_stream  # type: ignore
+
+    # Patch the non-streaming client path to short-circuit; we only want to
+    # verify that chat_completion_stream was NOT called for max_tokens <= 4096.
+    provider._sanitize_messages = lambda msgs: msgs  # type: ignore
+    sentinel_resp = MagicMock(name="SentinelResponse")
+    provider._parse_response = lambda resp: sentinel_resp  # type: ignore
+
+    class _FakeClient:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    return MagicMock()
+    provider._client = _FakeClient()
+
+    result = provider.chat_completion(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        generation_params={"max_tokens": 1024},
+    )
+    assert stream_called["n"] == 0, (
+        "Low max_tokens should NOT trigger the streaming fallback — that would "
+        "always-stream unnecessarily."
+    )
+    assert result is sentinel_resp
+
+
 def test_canary_drift_band_logs_warning(caplog):
     """A drift-band vector must log a warning so the plugin author sees the
     signal — 'you're accepted but your normalization is drifting.'"""

@@ -68,6 +68,13 @@ body = {
     "type": "task",
     "enabled": True,
     "schedule": "0 0 31 2 *",
+    # Auto-delete on completion + cap runs. Without this, a SIGKILL / timeout
+    # / Ctrl-C between POST /tasks and DELETE leaves the task stranded in
+    # tasks.json. After 25 strands the scheduler's MAX_TASKS cap blocks new
+    # task creation — trinity bridge dies with 400s. Scout longevity #2
+    # (2026-04-20).
+    "delete_after_run": True,
+    "max_runs": 1,
     "toolset": s.get('toolset') or s.get('ability') or 'all',
     "prompt": s.get('persona') or s.get('prompt') or 'sapphire',
     "chat_target": os.environ['CHAT_NAME'],

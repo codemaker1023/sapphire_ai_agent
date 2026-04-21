@@ -105,7 +105,10 @@ def test_stamp_embedding_returns_triple():
 
 def test_stamp_embedding_none_returns_triple_none():
     from core.embeddings import stamp_embedding
-    assert stamp_embedding(None) == (None, None, None)
+    # embedder arg is now required (race #6 fix 2026-04-20) to prevent the
+    # default-path from silently reading the post-swap provider singleton.
+    # None vector still short-circuits to triple-None regardless of embedder.
+    assert stamp_embedding(None, MagicMock()) == (None, None, None)
 
 
 # ─── Memory isolated fixture ──────────────────────────────────────────────

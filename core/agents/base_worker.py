@@ -130,6 +130,11 @@ class BaseWorker:
             'has_result': self.result is not None,
             'error': self.error,
             'warning': self.warning,
-            'tool_log': self.tool_log,
+            # Cap the tool_log payload — a runaway agent with max_tool_rounds=0
+            # can accumulate thousands of entries, and this dict ships on every
+            # 3s /api/agents/status poll. The full log stays intact on the
+            # worker; we only truncate the serialized view. Scout longevity #3
+            # — 2026-04-20.
+            'tool_log': self.tool_log[-200:] if len(self.tool_log) > 200 else self.tool_log,
             'chat_name': self.chat_name,
         }

@@ -369,6 +369,15 @@ class ContinuityExecutor:
             # Normalize the same way create_chat sanitizes: keep alnum/space/dash/underscore
             normalized = "".join(c for c in target_chat if c.isalnum() or c in (' ', '-', '_')).strip()
             normalized = normalized.replace(' ', '_').lower()
+            # Guard: all-non-alnum chat_target (e.g. "!!!") normalizes to empty.
+            # Proceeding would create/write to a blank-named chat file — bad
+            # on-disk state and session_manager behavior for "" is undefined.
+            # Fail the task loudly instead. Chaos scout #15 — 2026-04-20.
+            if not normalized:
+                raise ValueError(
+                    f"chat_target {target_chat!r} normalizes to empty — "
+                    "refusing to create/write blank-named chat."
+                )
             existing_chats = {c["name"]: c["name"] for c in session_manager.list_chat_files()}
             match = existing_chats.get(normalized)
             if match:
@@ -397,7 +406,16 @@ class ContinuityExecutor:
                     from plugins.discord.tools.discord_tools import _reply_channel_id
                     _reply_channel_id.set(reply_ch)
                 except ImportError:
+                    # Discord plugin not loaded at all — expected path, quiet.
                     pass
+                except Exception as e:
+                    # Plugin loaded but discord_tools broken in some other way.
+                    # Silently ignoring would auto-reply land nowhere visible
+                    # with no diagnostic. Log loudly. Chaos scout #19.
+                    logger.warning(
+                        f"[Continuity] Discord reply channel set failed "
+                        f"(plugin loaded but broken): {e}"
+                    )
 
             tts_enabled = task.get("tts_enabled", True)
             browser_tts = task.get("browser_tts", False)

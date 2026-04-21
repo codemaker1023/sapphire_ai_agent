@@ -640,14 +640,17 @@ def current_provenance():
     return provider_id, dim
 
 
-def stamp_embedding(vector, embedder=None):
+def stamp_embedding(vector, embedder):
     """Return (blob, provider_id, dim) for a vector about to be written.
 
     `vector` is a 1-D numpy array (a single embedding, not a batch).
     `embedder` — the specific embedder instance that produced the vector.
-    Pass it explicitly when the caller already has a reference — otherwise
-    a concurrent `switch_embedding_provider` could make `current_provenance()`
-    return a different provider than the one that actually produced the vec.
+    **Required.** If omitted and we read `get_embedder()` here, a concurrent
+    `switch_embedding_provider` between vector production and stamping would
+    write the row with the NEW provider's id while the vec was produced by
+    the OLD provider — stored-vector provenance corruption that's invisible
+    to vector search forever. Every caller already has a reference at this
+    point; pass it. Race scout #6 — 2026-04-20.
 
     Returned values stamp the row: use `(blob, provider_id, dim)` on INSERT.
     """
@@ -657,8 +660,6 @@ def stamp_embedding(vector, embedder=None):
     arr = _np.asarray(vector, dtype=_np.float32)
     if arr.ndim != 1:
         arr = arr.reshape(-1)
-    if embedder is None:
-        embedder = get_embedder()
     provider_id = getattr(embedder, 'provider_id', None) if embedder else None
     return arr.tobytes(), provider_id, int(arr.shape[0])
 
