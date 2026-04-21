@@ -794,10 +794,14 @@ async def update_memory(memory_id: int, request: Request, _=Depends(require_logi
 
 @router.delete("/api/memory/{memory_id}")
 async def delete_memory_api(memory_id: int, request: Request, _=Depends(require_login)):
-    """Delete a memory by ID."""
+    """Delete a memory by ID. Accepts ?private_key=... so the Mind UI can
+    delete private rows it can already see plaintext (the user is authenticated
+    and the gate is for AI tool calls, not their own UI). Without this, the
+    UI's delete button silently fails on private rows. 2026-04-21."""
     from plugins.memory.tools import memory_tools as memory
     scope = request.query_params.get('scope', 'default')
-    result, success = memory._delete_memory(memory_id, scope)
+    private_key = request.query_params.get('private_key')
+    result, success = memory._delete_memory(memory_id, scope, private_key=private_key)
     if success:
         return {"deleted": memory_id}
     raise HTTPException(status_code=404, detail=result)
