@@ -34,10 +34,11 @@ TOOLS = [
             "description": (
                 "Save a memory to Claude's persistent memory scope — visible to future "
                 "Claude Code sessions. Use for cross-session continuity: decisions made, "
-                "context about Krem, what was built, what's still open. Max 512 chars. "
-                "Optionally tag with 'label' to categorize (e.g. 'for:sapphire' for notes "
-                "meant for Sapphire to read; 'session:YYYYMMDD-HHMM' for session fingerprint; "
-                "'shared' for memories both Claude and Sapphire reference)."
+                "context about Krem, what was built, what's still open. Keep under 450 "
+                "characters — be concise. Optionally tag with 'label' to categorize "
+                "(e.g. 'for:sapphire' for notes meant for Sapphire to read; "
+                "'session:YYYYMMDD-HHMM' for session fingerprint; 'shared' for memories "
+                "both Claude and Sapphire reference)."
             ),
             "parameters": {
                 "type": "object",

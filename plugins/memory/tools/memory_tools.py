@@ -38,7 +38,7 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "save_memory",
-            "description": f"Save information to long-term memory. Max 512 chars - be concise. Assign a label to categorize. Suggested labels: {SUGGESTED_LABELS}. You can create new labels too. Use 'self' for your own self-knowledge.",
+            "description": f"Save information to long-term memory. Keep under 450 characters — be concise. Assign a label to categorize. Suggested labels: {SUGGESTED_LABELS}. You can create new labels too. Use 'self' for your own self-knowledge.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -591,8 +591,11 @@ def _format_memory(row_id, content, timestamp, label):
     time_ago = _format_time_ago(timestamp)
     time_str = f" ({time_ago})" if time_ago else ""
     label_str = f" [{label}]" if label else ""
-    preview = content[:150] + ('...' if len(content) > 150 else '')
-    return f"[{row_id}]{time_str}{label_str} {preview}"
+    # Show the full memory content — memories are already capped at 512 chars
+    # on save, so no runaway length. The previous 150-char truncation forced
+    # the LLM to re-search or call get_recent just to see the rest of a
+    # single memory, burning tokens for nothing. TODO L126 — 2026-04-21.
+    return f"[{row_id}]{time_str}{label_str} {content}"
 
 
 def _parse_labels(label) -> list:

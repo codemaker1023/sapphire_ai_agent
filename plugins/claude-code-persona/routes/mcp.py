@@ -114,7 +114,8 @@ _MCP_TOOLS = [
         "name": "save_claude_memory",
         "description": (
             "Save a memory to Claude's persistent memory scope. Visible to future "
-            "Claude Code sessions. Max 512 chars. Optional label for filtering."
+            "Claude Code sessions. Keep under 450 characters — be concise. "
+            "Optional label for filtering."
         ),
         "inputSchema": {
             "type": "object",
