@@ -34,49 +34,49 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "spawn_agent",
-            "description": "Launch a background agent. IMPORTANT: Always call agent_options() first to see available agent types — there may be specialized types like 'claude_code' for coding tasks. Do NOT default to 'llm' for coding — check what's available. The agent runs in isolation and reports back automatically when done.\n\nFor 'claude_code_plugin' type: You are the DIRECTOR, not the coder. Claude Code has access to all plugin docs, examples, Sapphire logs, and a real reference plugin. You do NOT need to research docs, read base classes, or run commands to scope things out — Claude Code does all of that itself. Just describe WHAT to build (specific requirements, API details, constraints) and dispatch. Do NOT search docs, read source files, or run_command before spawning. If the agent returns with errors, spawn it again with the error details — do NOT troubleshoot manually with run_command.",
+            "description": "Launch a background agent. Types: llm | claude_code | claude_code_plugin. Call agent_options() first. Full usage + director rules: search_help_docs('agents').",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "mission": {
                         "type": "string",
-                        "description": "The task/question for the agent to complete. Be specific about WHAT to build but don't write the code — the agent handles implementation."
+                        "description": "Task for the agent. What to do, not how."
                     },
                     "agent_type": {
                         "type": "string",
-                        "description": "Type of agent to spawn. MUST call agent_options() first to see available types. Use 'claude_code' for general projects, 'claude_code_plugin' for Sapphire plugins, 'llm' for research/analysis."
+                        "description": "llm | claude_code | claude_code_plugin. From agent_options()."
                     },
                     "model": {
                         "type": "string",
-                        "description": "Model override (e.g. 'claude-opus-4-6') — only for 'llm' type. Leave empty for auto/default."
+                        "description": "Model override (llm only, e.g. 'claude-opus-4-6')"
                     },
                     "toolset": {
                         "type": "string",
-                        "description": "Which toolset the agent can use (e.g. 'default', 'research') — only for 'llm' type."
+                        "description": "Toolset (llm only)"
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "Which persona the agent runs under (controls voice, toolset, and scope defaults) — only for 'llm' type. Default: 'agent' (lean background worker — no personality, minimal scopes, safe for automation). Special keyword 'self' inherits the spawning chat's current persona, useful when you want the agent to sound like you and have your scope set. Or pass any persona name string (e.g. 'sapphire', 'cobalt')."
+                        "description": "Persona (llm only). 'agent'=lean default, 'self'=inherit, or persona name."
                     },
                     "project_name": {
                         "type": "string",
-                        "description": "Project/workspace name — only for 'claude_code' type."
+                        "description": "Workspace name (claude_code only)"
                     },
                     "plugin_name": {
                         "type": "string",
-                        "description": "Plugin directory name — only for 'claude_code_plugin' type. Created in user/plugins/{name}/."
+                        "description": "Plugin dir name (claude_code_plugin only). Lands in user/plugins/{name}/"
                     },
                     "capabilities": {
                         "type": "string",
-                        "description": "Comma-separated plugin capabilities — only for 'claude_code_plugin'. Options: tools, hooks, daemon, routes, settings, providers, schedule."
+                        "description": "Comma-sep (claude_code_plugin only): tools, hooks, daemon, routes, settings, providers, schedule"
                     },
                     "context": {
                         "type": "string",
-                        "description": "Additional context for Claude Code — only for 'claude_code_plugin'. Specific requirements like API details, voice formats, settings fields. Don't include generic plugin patterns — Claude Code has access to the docs."
+                        "description": "Extra requirements (claude_code_plugin only). APIs, constraints, formats."
                     },
                     "session_id": {
                         "type": "string",
-                        "description": "Resume a previous Claude Code session by ID — for 'claude_code' and 'claude_code_plugin' types."
+                        "description": "Resume prior session (claude_code + claude_code_plugin)"
                     }
                 },
                 "required": ["mission"]

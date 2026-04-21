@@ -156,7 +156,11 @@ class ClaudeProvider(BaseProvider):
         from core.settings_manager import settings
         providers_config = settings.get('LLM_PROVIDERS', {})
         claude_config = providers_config.get('claude', {})
-        cache_enabled = claude_config.get('cache_enabled', False)
+        # Default True — caching cuts per-turn tool-schema cost ~10x, and
+        # the dynamic-content gate below auto-disables system-prompt caching
+        # when spice/datetime/state injection would cause guaranteed misses.
+        # Existing users pre-2026-04-21 who never set this key land on True.
+        cache_enabled = claude_config.get('cache_enabled', True)
         cache_ttl = claude_config.get('cache_ttl', '5m')
         
         # Check if spice, datetime, or state injection is enabled for active chat

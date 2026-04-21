@@ -1,3 +1,8 @@
+# 2.5.12 - Tool token reduction
+- Reduced almost every tool description
+- Enabled Claude cache by default
+- Moved tool to "call tool without params for help"
+- Enhanced docs tool so AI can get info like toolmaker easier
 # 2.5.11 - Embeddings switch
 - Can swap embeddings model to smaller larger
 - Can make plugin for embedding

@@ -119,26 +119,26 @@ TOOLS = [
 _send_props = {
     "recipient_id": {
         "type": "integer",
-        "description": "Contact ID from get_recipients() — required for new emails, omit when replying"
+        "description": "Contact id from get_recipients()"
     },
     "reply_to_index": {
         "type": "integer",
-        "description": "Email index from get_inbox() to reply to — sets recipient, subject, and threading headers automatically"
+        "description": "Inbox index from get_inbox() — auto-sets recipient / subject / thread headers"
     },
     "subject": {
         "type": "string",
-        "description": "Email subject (auto-set to 'Re: ...' when replying)"
+        "description": "Subject (auto-'Re: ...' on reply)"
     },
     "body": {
         "type": "string",
-        "description": "Email body text"
+        "description": "Body text"
     },
     "address": {
         "type": "string",
-        "description": "Email address to send to directly (only works when allow-all-recipients is enabled in settings). Use this OR recipient_id, not both."
+        "description": "Direct email address. Requires allow-all-recipients setting. Not with recipient_id."
     },
 }
-_send_desc = "Send an email. For contacts use recipient_id (from get_recipients). For any address use the address parameter directly (requires allow-all setting). For replies use reply_to_index (from get_inbox)."
+_send_desc = "Send an email.\n  recipient_id=N — to a contact (from get_recipients)\n  reply_to_index=N — reply to inbox entry (from get_inbox)\n  address='x@y' — direct (requires allow-all)"
 
 TOOLS.append({
     "type": "function",

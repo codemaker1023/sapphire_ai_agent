@@ -36,29 +36,29 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "create_goal",
-            "description": "Create a new goal or subtask. Use parent_id to nest under an existing goal. Goals persist across conversations and are scoped to your current memory slot by default.",
+            "description": "Create a goal.\n  parent_id=N — subtask under goal N\n  (none) — top-level goal",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Short, clear goal title (max 200 chars)"
+                        "description": "Title (max 200 chars)"
                     },
                     "description": {
                         "type": "string",
-                        "description": "Optional context, motivation, or success criteria (max 500 chars)"
+                        "description": "Context / success criteria (max 500 chars)"
                     },
                     "priority": {
                         "type": "string",
-                        "description": "Priority level: high, medium, or low (default: medium)"
+                        "description": "high | medium | low (default medium)"
                     },
                     "parent_id": {
                         "type": "integer",
-                        "description": "ID of parent goal to make this a subtask. Omit for top-level goal."
+                        "description": "Parent goal id for nesting"
                     },
                     "permanent": {
                         "type": "boolean",
-                        "description": "Make this a permanent/standing goal that cannot be completed, abandoned, or deleted. Use for ongoing duties like monitoring tasks. Default: false."
+                        "description": "Standing goal — cannot be completed/deleted. For ongoing duties. Default false."
                     }
                 },
                 "required": ["title"]
@@ -70,17 +70,17 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "list_goals",
-            "description": "List goals or get details on a specific goal. Without goal_id: shows top 3 goals fully expanded (subtasks + recent progress) and summarizes the rest, sorted by most recently updated. With goal_id: deep view of that goal with all subtasks and full progress journal.",
+            "description": "List goals or deep-view one.\n  goal_id=N — full detail + subtasks + journal\n  (none) — overview (top 3 expanded, rest summarized)",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "goal_id": {
                         "type": "integer",
-                        "description": "Get full details for a specific goal. Omit for smart overview."
+                        "description": "Goal id for deep view"
                     },
                     "status": {
                         "type": "string",
-                        "description": "Filter by status: active, completed, abandoned, or all (default: active)"
+                        "description": "active | completed | abandoned | all (default active)"
                     }
                 },
                 "required": []
@@ -92,13 +92,13 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "update_goal",
-            "description": "Update a goal's fields or log progress. Any field you pass gets updated. Use progress_note to journal what you did — it's timestamped and appended (not replaced). Updating anything bumps the goal to the top of list_goals.",
+            "description": "Update a goal. Pass any fields to change. progress_note appends (not replaces).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "goal_id": {
                         "type": "integer",
-                        "description": "ID of the goal to update (shown in brackets like [5])"
+                        "description": "Goal id (shown as [N])"
                     },
                     "title": {
                         "type": "string",
@@ -110,15 +110,15 @@ TOOLS = [
                     },
                     "priority": {
                         "type": "string",
-                        "description": "New priority: high, medium, or low"
+                        "description": "high | medium | low"
                     },
                     "status": {
                         "type": "string",
-                        "description": "New status: active, completed, or abandoned"
+                        "description": "active | completed | abandoned"
                     },
                     "progress_note": {
                         "type": "string",
-                        "description": "Journal entry about progress made (max 1024 chars). Timestamped and appended to history. Use for status updates, completion summaries, and lessons learned."
+                        "description": "Timestamped journal entry — appended (max 1024 chars)"
                     }
                 },
                 "required": ["goal_id"]
@@ -130,17 +130,17 @@ TOOLS = [
         "is_local": True,
         "function": {
             "name": "delete_goal",
-            "description": "Permanently delete a goal. Use status 'abandoned' via update_goal to keep a record instead. Subtasks are deleted too by default.",
+            "description": "Delete a goal. Use update_goal(status='abandoned') to keep history instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "goal_id": {
                         "type": "integer",
-                        "description": "ID of the goal to delete (shown in brackets like [5])"
+                        "description": "Goal id"
                     },
                     "cascade": {
                         "type": "boolean",
-                        "description": "Also delete subtasks (default: true). Set false to orphan subtasks into top-level goals."
+                        "description": "Delete subtasks too (default true). False = orphan to top-level."
                     }
                 },
                 "required": ["goal_id"]
