@@ -1352,17 +1352,21 @@ def _vector_search_entries(query, scope, category=None, limit=10):
             'e.embedding IS NOT NULL AND e.embedding_provider = ? AND e.embedding_dim = ?'
         )
         provenance_params = [active_provider, query_dim]
+        # LIMIT caps per-query memory — 50MB+ RSS spike at 50k rows otherwise.
+        # Matches memory_tools.py's ORDER BY updated_at DESC LIMIT 10000. M10.
         if category:
             cursor.execute(f'''
                 SELECT e.id, e.content, t.name, e.embedding, e.source_filename
                 FROM knowledge_entries e JOIN knowledge_tabs t ON e.tab_id = t.id
                 WHERE {scope_sql} AND LOWER(t.name) = LOWER(?) AND {provenance_sql}
+                ORDER BY e.updated_at DESC LIMIT 10000
             ''', scope_params + [category] + provenance_params)
         else:
             cursor.execute(f'''
                 SELECT e.id, e.content, t.name, e.embedding, e.source_filename
                 FROM knowledge_entries e JOIN knowledge_tabs t ON e.tab_id = t.id
                 WHERE {scope_sql} AND {provenance_sql}
+                ORDER BY e.updated_at DESC LIMIT 10000
             ''', scope_params + provenance_params)
 
         rows = cursor.fetchall()
@@ -1404,10 +1408,13 @@ def _search_people(query, scope='default', limit=10):
             with _get_connection() as conn:
                 cursor = conn.cursor()
                 scope_sql, scope_params = _scope_condition(scope)
+                # LIMIT caps per-query memory (150MB+ RSS at 50k rows).
+                # ORDER BY updated_at DESC matches memory_tools. M10.
                 cursor.execute(
                     f'SELECT id, name, relationship, phone, email, address, notes, embedding '
                     f'FROM people WHERE {scope_sql} AND embedding IS NOT NULL '
-                    f'AND embedding_provider = ? AND embedding_dim = ?',
+                    f'AND embedding_provider = ? AND embedding_dim = ? '
+                    f'ORDER BY updated_at DESC LIMIT 10000',
                     scope_params + [active_provider, query_dim]
                 )
                 rows = cursor.fetchall()

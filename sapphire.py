@@ -380,6 +380,7 @@ class VoiceChatSystem:
             from core.stt.stt_null import NullAudioRecorder as _NullRec
             self.whisper_client = NullWhisperClient()
             self.whisper_recorder = _NullRec()
+            self._publish_stt_fallback_event(provider_name, e)
             return False
 
     def toggle_stt(self, enabled: bool):
@@ -582,6 +583,21 @@ class VoiceChatSystem:
 
         return None
 
+    def _publish_stt_fallback_event(self, provider_name, exc):
+        """Emit CONTINUITY_TASK_ERROR when STT fell back to null — mirrors the
+        wakeword pattern in init_components so the UI can surface 'STT silently
+        deaf' instead of lying that it's enabled. H7 fix 2026-04-22."""
+        try:
+            from core.event_bus import publish, Events
+            publish(Events.CONTINUITY_TASK_ERROR, {
+                "task": "STT",
+                "error": f"STT provider '{provider_name}' failed to initialize "
+                         f"({type(exc).__name__}: {exc}). Sapphire fell back to null "
+                         f"— check provider config and reinitialize via settings.",
+            })
+        except Exception:
+            pass
+
     def start_background_services(self):
         provider = getattr(config, 'STT_PROVIDER', 'none')
         # Legacy compat: if STT_PROVIDER missing but STT_ENABLED is true, assume faster_whisper
@@ -606,10 +622,12 @@ class VoiceChatSystem:
             except ImportError as e:
                 logger.error(f"STT provider '{provider}' not available: {e}")
                 self.whisper_client = NullWhisperClient()
+                self._publish_stt_fallback_event(provider, e)
                 return False
             except RuntimeError as e:
                 logger.error(f"Failed to initialize STT provider '{provider}': {e}")
                 self.whisper_client = NullWhisperClient()
+                self._publish_stt_fallback_event(provider, e)
                 return False
         else:
             logger.info("STT disabled - skipping initialization")

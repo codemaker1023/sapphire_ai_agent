@@ -1,3 +1,11 @@
+# 2.6.0 - Scopes
+- Collective update from 2.5.0
+- Improved core and plugins instead of expanding
+- Those scope dropdowns like memory slot are plugins now
+- Can add more dropdowns via plugin (stuff like SMS, social media, etc)
+- Swappable embeddings for slow computers
+- Claude Code plugin agent to make plugins
+- Pytest coverage 
 # 2.5.12 - Tool token reduction
 - Reduced almost every tool description (~27% reduction)
 - Enabled Claude cache by default

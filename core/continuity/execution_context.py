@@ -127,10 +127,15 @@ class ExecutionContext:
         # iterations on the same thread (previous task's scopes would linger)
         reset_scopes()
 
-        if not self.tools:
-            return None
-
-        # Apply task-specific scopes to this thread's ContextVars
+        # NOTE: we do NOT short-circuit on `not self.tools` before the force-None
+        # closure below. An empty-toolset agent still needs its scopes closed —
+        # hook_runner fires during agent runs, plugin handlers read ContextVars,
+        # event publishes read scope from the current thread. If the closure
+        # is skipped, the thread's scopes stay at registry defaults (including
+        # 'default' — a real scope with user data). Silent-default leak for
+        # toolset-less agents. H2 fix 2026-04-22.
+        #
+        # Apply task-specific scopes to this thread's ContextVars.
         apply_scopes_from_settings(self.fm, self.task_settings)
         # Force-None every SCOPE_REGISTRY key NOT explicitly present in the
         # task's settings. This is the silent-default class closure.
@@ -156,8 +161,14 @@ class ExecutionContext:
         for name, reg in list(SCOPE_REGISTRY.items()):
             setting_key = reg.get('setting')
             if setting_key and setting_key not in self.task_settings:
+                # Bool-typed flags (e.g. scope_private) aren't scopes — their
+                # registered default IS the disabled state (False). Force-None
+                # on them sets a None value that breaks callers expecting bool.
+                # Scopes are string-name ContextVars — those get None.
+                default_val = reg.get('default')
+                disabled_val = False if isinstance(default_val, bool) else None
                 try:
-                    reg['var'].set(None)
+                    reg['var'].set(disabled_val)
                 except Exception as e:
                     logger.warning(f"[ExecCtx] Could not force-disable scope {name}: {e}")
         # Also clear rag/private since tasks don't use those

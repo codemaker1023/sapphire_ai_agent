@@ -102,8 +102,8 @@ def save_password_hash(password: str) -> str | None:
         logger.error("bcrypt module not available")
         return None
     
-    if not password or len(password) < 6:
-        logger.error("Password too short (minimum 6 characters)")
+    if not password or len(password) < 10:
+        logger.error("Password too short (minimum 10 characters)")
         return None
     
     try:

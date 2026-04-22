@@ -21,11 +21,19 @@ FULL_MESSAGE="[Claude Code via terminal — not the user]
 ---
 $MESSAGE"
 
-# Always fresh login — CSRF token must come from the same session
+# Always fresh login — CSRF token must come from the same session.
+# Two-stage CSRF: the login form has its own token; after login the session
+# rotates (session-fixation fix 2026-04-22 M5), so we re-scrape a fresh
+# CSRF from the main page's <meta name="csrf-token"> for subsequent requests.
 rm -f "$COOKIE_JAR"
-CSRF=$(curl -sk -c "$COOKIE_JAR" "$BASE/login" | grep -oP 'name="csrf_token"\s+value="\K[^"]+')
+LOGIN_CSRF=$(curl -sk -c "$COOKIE_JAR" "$BASE/login" | grep -oP 'name="csrf_token"\s+value="\K[^"]+')
 curl -sk -b "$COOKIE_JAR" -c "$COOKIE_JAR" -X POST "$BASE/login" \
-    -d "password=$PASSWORD&csrf_token=$CSRF" -o /dev/null
+    -d "password=$PASSWORD&csrf_token=$LOGIN_CSRF" -o /dev/null
+CSRF=$(curl -sk -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$BASE/" | grep -oP 'name="csrf-token"\s+content="\K[^"]+')
+if [ -z "$CSRF" ]; then
+    echo "ERROR: could not fetch post-login CSRF token from / — login may have failed" >&2
+    exit 4
+fi
 
 # Fetch the target chat's configured settings so the continuity task inherits
 # the chat's persona + scopes + toolset. We REFUSE to run if settings can't

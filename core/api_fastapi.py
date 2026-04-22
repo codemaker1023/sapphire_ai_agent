@@ -360,7 +360,7 @@ async def setup_submit(request: Request):
 
     if not password:
         return RedirectResponse(url="/setup?error=empty", status_code=302)
-    if len(password) < 6:
+    if len(password) < 10:
         return RedirectResponse(url="/setup?error=short", status_code=302)
     if password != confirm:
         return RedirectResponse(url="/setup?error=mismatch", status_code=302)
@@ -412,6 +412,11 @@ async def login_submit(request: Request):
         return RedirectResponse(url="/login?error=config", status_code=302)
 
     if verify_password(password, password_hash):
+        # Rotate session state before promoting to authenticated. Prevents
+        # session-fixation — a pre-login cookie an attacker could have planted
+        # (LAN XSS on another localhost app, stale iframe, etc) gets cleared
+        # before we stamp logged_in. 2026-04-22 M5 fix.
+        request.session.clear()
         request.session['logged_in'] = True
         request.session['username'] = getattr(config, 'AUTH_USERNAME', 'user')
         logger.info(f"Successful login from {client_ip}")
