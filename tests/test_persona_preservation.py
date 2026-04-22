@@ -129,23 +129,19 @@ def test_d2_standard_keys_still_pass_allowlist(isolated_persona_manager):
 
 def test_d3_delete_active_persona_rewrites_chat_settings(isolated_persona_manager):
     """D3 — deleting a persona that's active in chats must rewrite those chats
-    to 'default' with a loud log + SETTINGS_CHANGED event."""
+    to 'default' via reset_chat_scope_ref. Regression scout 2026-04-22 caught
+    that this was calling update_chat_settings with a (chat_name, settings)
+    positional pair — wrong signature, TypeError swallowed at DEBUG level.
+    Now uses reset_chat_scope_ref which correctly targets chats by name."""
     mgr, _ = isolated_persona_manager
     mgr._personas = {
         "default": {"prompt": "default", "settings": {}},
         "anita": {"prompt": "anita", "settings": {}},
     }
 
-    # Mock the session manager as if two chats exist — one uses 'anita', one uses 'default'
     mock_sm = MagicMock()
-    mock_sm.list_chats.return_value = [{"name": "chat-with-anita"}, {"name": "chat-with-default"}]
-
-    def read_settings(chat_name):
-        if chat_name == "chat-with-anita":
-            return {"persona": "anita"}
-        return {"persona": "default"}
-
-    mock_sm.read_chat_settings.side_effect = read_settings
+    # reset_chat_scope_ref returns the list of chat names that were updated
+    mock_sm.reset_chat_scope_ref.return_value = ["chat-with-anita"]
 
     mock_system = MagicMock()
     mock_system.llm_chat.session_manager = mock_sm
@@ -155,16 +151,15 @@ def test_d3_delete_active_persona_rewrites_chat_settings(isolated_persona_manage
             result = mgr.delete("anita")
 
     assert result is True
-
-    # update_chat_settings must have been called for chat-with-anita (only)
-    update_calls = mock_sm.update_chat_settings.call_args_list
-    assert len(update_calls) == 1
-    assert update_calls[0][0][0] == "chat-with-anita"
-    assert update_calls[0][0][1] == {"persona": "default"}
+    # reset_chat_scope_ref must have been called with the persona setting key
+    mock_sm.reset_chat_scope_ref.assert_called_once_with(
+        'persona', 'anita', reset_to='default'
+    )
 
 
-def test_d3_delete_unused_persona_no_chat_rewrites(isolated_persona_manager):
-    """Sanity — D3 doesn't misfire when the persona isn't active anywhere."""
+def test_d3_delete_unused_persona_still_calls_reset_ref(isolated_persona_manager):
+    """Even when no chats reference the deleted persona, reset_chat_scope_ref
+    is called — it returns [] in that case and the WARN log doesn't fire."""
     mgr, _ = isolated_persona_manager
     mgr._personas = {
         "default": {"prompt": "default", "settings": {}},
@@ -172,8 +167,7 @@ def test_d3_delete_unused_persona_no_chat_rewrites(isolated_persona_manager):
     }
 
     mock_sm = MagicMock()
-    mock_sm.list_chats.return_value = [{"name": "chat-a"}]
-    mock_sm.read_chat_settings.return_value = {"persona": "default"}
+    mock_sm.reset_chat_scope_ref.return_value = []  # no affected chats
 
     mock_system = MagicMock()
     mock_system.llm_chat.session_manager = mock_sm
@@ -182,5 +176,7 @@ def test_d3_delete_unused_persona_no_chat_rewrites(isolated_persona_manager):
         with patch("core.api_fastapi.get_system", return_value=mock_system):
             mgr.delete("unused")
 
-    # No chat should have been rewritten
-    assert mock_sm.update_chat_settings.call_count == 0
+    # The helper is still called — it scans all chats but affects none.
+    mock_sm.reset_chat_scope_ref.assert_called_once_with(
+        'persona', 'unused', reset_to='default'
+    )

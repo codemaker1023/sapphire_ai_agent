@@ -261,41 +261,39 @@ class PersonaManager:
                     except Exception as e:
                         logger.warning(f"Failed to delete avatar {avatar}: {e}")
 
-            # Active-persona handoff. Rewrite any chat that points at this
-            # persona to 'default' so activation doesn't silently no-op.
+            # Active-persona handoff. Rewrite every chat whose persona setting
+            # points at this persona to 'default' so activation doesn't
+            # silently no-op. Uses the existing `reset_chat_scope_ref` helper
+            # which does a SQL-level UPDATE by chat name — not the active-chat-
+            # only `update_chat_settings`. Original implementation of this
+            # fix called update_chat_settings(chat_name, {...}) which raised
+            # TypeError (signature is `(settings)` only) — regression scout
+            # 2026-04-22 caught this; fix D3 was silently inert until now.
             try:
                 from core.api_fastapi import get_system
                 system = get_system()
                 sm = getattr(getattr(system, 'llm_chat', None), 'session_manager', None)
-                if sm is not None and hasattr(sm, 'list_chats'):
-                    affected_chats = []
-                    for chat_entry in sm.list_chats() or []:
-                        chat_name = chat_entry.get('name') if isinstance(chat_entry, dict) else str(chat_entry)
-                        if not chat_name:
-                            continue
-                        try:
-                            settings = sm.read_chat_settings(chat_name) or {}
-                            if settings.get('persona') == name:
-                                sm.update_chat_settings(chat_name, {'persona': 'default'})
-                                affected_chats.append(chat_name)
-                        except Exception as chat_err:
-                            logger.debug(f"[PERSONA] Could not check chat '{chat_name}': {chat_err}")
-                    if affected_chats:
-                        logger.warning(
-                            f"[PERSONA] Deleted persona '{name}' was active in "
-                            f"{len(affected_chats)} chat(s): {affected_chats}. "
-                            f"Each was reset to 'default'."
-                        )
-                        try:
-                            from core.event_bus import publish, Events
-                            publish(Events.SETTINGS_CHANGED, {
-                                "key": "chat_persona_fallback",
-                                "value": "default",
-                                "reason": f"deleted_persona:{name}",
-                                "affected_chats": affected_chats,
-                            })
-                        except Exception:
-                            pass
+                affected_chats = []
+                if sm is not None and hasattr(sm, 'reset_chat_scope_ref'):
+                    affected_chats = sm.reset_chat_scope_ref(
+                        'persona', name, reset_to='default'
+                    ) or []
+                if affected_chats:
+                    logger.warning(
+                        f"[PERSONA] Deleted persona '{name}' was active in "
+                        f"{len(affected_chats)} chat(s): {affected_chats}. "
+                        f"Each was reset to 'default'."
+                    )
+                    try:
+                        from core.event_bus import publish, Events
+                        publish(Events.SETTINGS_CHANGED, {
+                            "key": "chat_persona_fallback",
+                            "value": "default",
+                            "reason": f"deleted_persona:{name}",
+                            "affected_chats": affected_chats,
+                        })
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.debug(f"[PERSONA] Active-persona handoff check skipped: {e}")
 
