@@ -689,6 +689,33 @@ def _get_recipients():
 
 
 def _send_email(recipient_id=None, subject=None, body='', reply_to_index=None, address=None):
+    # Target-mode mutex. Pre-2026-04-22 the precedence was
+    # `address > reply_to_index > recipient_id`, which meant if the AI
+    # passed both `recipient_id` and `reply_to_index` (confused or trying
+    # to combine intents), reply_to_index silently won and the email went
+    # to whoever sent that inbox entry — NOT to the contact the caller
+    # named. Day-ruiner H4 — wrong-recipient silent failure with
+    # potentially sensitive body content quoted. Fix: require exactly one
+    # target mode and refuse ambiguous calls loudly.
+    target_modes = sum([
+        bool(address),
+        reply_to_index is not None,
+        recipient_id is not None,
+    ])
+    if target_modes > 1:
+        return (
+            "Multiple recipient modes passed. Use EXACTLY ONE of "
+            "address, recipient_id, or reply_to_index.",
+            False,
+        )
+    if target_modes == 0:
+        return (
+            "No recipient specified. Pass one of recipient_id (from "
+            "get_recipients), reply_to_index (from get_inbox), or "
+            "address (requires allow-all-recipients).",
+            False,
+        )
+
     creds = _get_email_creds()
     if not creds:
         scope = _get_current_email_scope()

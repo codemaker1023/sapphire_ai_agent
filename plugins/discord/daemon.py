@@ -396,9 +396,25 @@ def _reply_handler(task, event_data: dict, response_text: str):
         logger.warning("[DISCORD] Reply handler missing channel_id or account")
         return
 
-    # Cooldown check — skip if replied to this channel too recently
-    cooldown = task.get("trigger_config", {}).get("cooldown", 0)
-    if cooldown and channel_id:
+    # Auto-reply gate — the manifest exposes a toggle but pre-2026-04-22 the
+    # daemon ignored it and replied regardless. Default is False. A user
+    # setting up the daemon to LISTEN ONLY (forward messages to Sapphire but
+    # not post back) would find the bot spamming channels and getting its
+    # token banned by Discord's anti-spam heuristics. Day-ruiner H1.
+    trigger_config = task.get("trigger_config", {}) or {}
+    if not trigger_config.get("auto_reply"):
+        logger.debug(f"[DISCORD] auto_reply disabled — skipping channel reply to #{channel_id}")
+        return
+
+    # Cooldown check — skip if replied to this channel too recently.
+    # Enforce a minimum floor even when the user sets 0: Discord's
+    # per-channel rate limit is 5 msgs/5 sec. Below 5s floor a busy channel
+    # guarantees API abuse flags → bot ban. User wanting "fast replies"
+    # still gets 5s granularity; anyone not wanting auto-reply should use
+    # the auto_reply toggle instead of cooldown=0. Day-ruiner H3.
+    MIN_COOLDOWN_SECONDS = 5
+    cooldown = max(trigger_config.get("cooldown", 0) or 0, MIN_COOLDOWN_SECONDS)
+    if channel_id:
         now = time.time()
         last = _last_reply_time.get(channel_id, 0)
         if now - last < cooldown:

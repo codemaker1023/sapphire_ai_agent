@@ -5,7 +5,7 @@
 - Can add more dropdowns via plugin (stuff like SMS, social media, etc)
 - Swappable embeddings for slow computers
 - Claude Code plugin agent to make plugins
-- Pytest coverage 
+- Pytest coverage
 # 2.5.12 - Tool token reduction
 - Reduced almost every tool description (~27% reduction)
 - Enabled Claude cache by default

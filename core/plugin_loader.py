@@ -889,22 +889,76 @@ class PluginLoader:
 
         # Manifest-declared extra cleanup paths — for plugins whose state
         # files/dirs DON'T follow the `{name}-*` convention (e.g. Google
-        # Calendar's `gcal-csrf.json`). Paths are relative to project root
-        # or user/; we resolve inside user/ and refuse anything that
-        # escapes that sandbox.
+        # Calendar's `gcal-csrf.json`). Paths are relative to the user/
+        # sandbox and must ALSO be in a plugin-owned subtree — otherwise
+        # a malicious or buggy manifest could declare
+        # `cleanup_paths: ["chats", "memory.db", "credentials.json"]` and
+        # have Sapphire delete all user data at uninstall. 2026-04-22
+        # day-ruiner finding — pre-fix the guard only blocked `..` escape
+        # out of user/, which left every file under user/ fair game.
+        #
+        # Allowed parents (plugin-namespaced only):
+        #   user/plugin_state/                     (any file/dir prefixed with plugin name)
+        #   user/webui/plugins/                    (settings files, already handled above anyway)
+        #   user/plugins/<name>/                   (for user-plugins-dir files)
+        #
+        # Anything else (chats, memory.db, knowledge.db, credentials.json,
+        # settings.json, logs, etc.) is refused with a loud WARN.
         try:
             manifest = info.get("manifest", {}) if info else {}
             extra_paths = manifest.get("capabilities", {}).get("cleanup_paths", [])
             user_root = (PROJECT_ROOT / "user").resolve()
+            allowed_parents = [
+                (user_root / "plugin_state").resolve(),
+                (user_root / "webui" / "plugins").resolve(),
+                (user_root / "plugins" / name).resolve(),
+            ]
             for rel in extra_paths:
                 if not isinstance(rel, str):
                     continue
                 candidate = (user_root / rel).resolve()
+                # 1. Must stay within user/ (existing guard, kept)
                 try:
                     candidate.relative_to(user_root)
                 except ValueError:
-                    logger.warning(f"[PLUGINS] Uninstall cleanup refused path outside user/: {rel}")
+                    logger.warning(f"[PLUGINS] Uninstall cleanup refused — outside user/: {rel}")
                     continue
+                # 2. Must be under a plugin-namespaced parent. Top-level
+                # files/dirs in user/ (chats, credentials.json, etc) are
+                # never OK from a plugin manifest.
+                in_allowed_parent = False
+                for parent in allowed_parents:
+                    try:
+                        candidate.relative_to(parent)
+                        in_allowed_parent = True
+                        break
+                    except ValueError:
+                        continue
+                if not in_allowed_parent:
+                    logger.warning(
+                        f"[PLUGINS] Uninstall cleanup REFUSED — path not in a "
+                        f"plugin-namespaced parent (user/plugin_state/, "
+                        f"user/webui/plugins/, or user/plugins/{name}/): {rel}"
+                    )
+                    continue
+                # 3. For plugin_state targets specifically, the filename
+                # must start with the plugin name (or exactly match it) —
+                # prevents 'foo' plugin from declaring cleanup of 'bar's
+                # state. This covers the common case where the file is
+                # directly under plugin_state/.
+                plugin_state_root = allowed_parents[0]
+                try:
+                    rel_in_state = candidate.relative_to(plugin_state_root)
+                    first_seg = rel_in_state.parts[0] if rel_in_state.parts else ""
+                    if not (first_seg == name or first_seg.startswith(f"{name}-")
+                            or first_seg.startswith(f"{name}_")):
+                        logger.warning(
+                            f"[PLUGINS] Uninstall cleanup REFUSED — state path "
+                            f"must start with plugin name '{name}': {rel}"
+                        )
+                        continue
+                except ValueError:
+                    pass  # Not under plugin_state — other allowed_parent matched
                 if candidate.exists():
                     try:
                         if candidate.is_dir():
