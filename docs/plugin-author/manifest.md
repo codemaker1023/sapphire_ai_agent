@@ -109,6 +109,23 @@ The import resolves via `function_manager.__getattr__` — no need to import the
 
 **Real example:** See `plugins/memory/plugin.json` for 4 scopes (memory, goal, knowledge, people) and `plugins/email/plugin.json` for the email scope.
 
+### Cleanup Paths (Uninstall)
+
+On uninstall, Sapphire automatically deletes:
+- `user/plugin_state/{name}.json` and any sibling files/dirs prefixed with `{name}-` or `{name}_`
+- `user/webui/plugins/{name}.json` (plugin settings)
+- `user/plugins/{name}/` (the plugin itself, user plugins only)
+
+If your plugin writes state files that don't follow the `{name}-*` naming convention, declare them in `capabilities.cleanup_paths`:
+
+```json
+"capabilities": {
+  "cleanup_paths": ["plugin_state/gcal-csrf.json"]
+}
+```
+
+Paths are relative to `user/`. **Namespace-restricted** — only paths under `user/plugin_state/` (with a filename starting with the plugin's name), `user/webui/plugins/`, or `user/plugins/{name}/` are honored. Anything else (`chats/`, `memory.db`, `credentials.json`, etc.) is refused with a `REFUSED` warning in the logs — a malicious or buggy manifest cannot delete cross-plugin or top-level user data.
+
 ## Priority Bands
 
 Lower fires first. Within each band:

@@ -252,11 +252,11 @@ Plugins are signed with ed25519 to detect tampering. The signing key lives outsi
 
 ### How Signing Works (Authors)
 
-The signing tool (`user/tools/sign_plugin.py`) walks every file in a plugin directory matching `SIGNABLE_EXTENSIONS` (`.py`, `.json`, `.js`, `.css`, `.html`, `.md`), computes a SHA256 hash of each, builds a JSON manifest, and signs it with an ed25519 private key. The output is `plugin.sig` in the plugin directory.
+The signing tool (`tools/sign_plugin.py`) walks every file in a plugin directory matching `SIGNABLE_EXTENSIONS` (`.py`, `.json`, `.js`, `.css`, `.html`, `.md`), computes a SHA256 hash of each, builds a JSON manifest, and signs it with an ed25519 private key. The output is `plugin.sig` in the plugin directory.
 
 ```
-python user/tools/sign_plugin.py plugins/stop/
-python user/tools/sign_plugin.py --all          # sign all plugins in plugins/
+python tools/sign_plugin.py plugins/stop/
+python tools/sign_plugin.py --all          # sign all plugins in plugins/
 ```
 
 **Private key:** `user/plugin_signing_key.pem` (gitignored). Generate with `user/tools/generate_signing_key.py`.
@@ -281,9 +281,9 @@ Without this, a plugin signed on Linux (LF) would read as tampered on Windows if
 
 | Setting | Default | Effect |
 |---------|---------|--------|
-| `ALLOW_UNSIGNED_PLUGINS` | `true` | Allow unsigned plugins with sideloading confirmation |
+| `ALLOW_UNSIGNED_PLUGINS` | `false` | Allow unsigned plugins with sideloading confirmation |
 
-When `false`, only signed+verified plugins load. Unsigned plugins are blocked entirely.
+Default is `false` — only signed+verified plugins load, unsigned plugins are blocked entirely. Toggle on in Settings > Plugins (guarded by a danger dialog) to load unsigned plugins with a warning. Tampered plugins are blocked regardless.
 
 ---
 
