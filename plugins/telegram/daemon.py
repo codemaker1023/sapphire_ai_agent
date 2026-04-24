@@ -456,6 +456,10 @@ def _reply_handler(task, event_data: dict, response_text: str):
     clean = re.sub(r'^[\s\S]*</(?:seed:think|seed:cot_budget_reflect|think)>', '', clean, flags=re.IGNORECASE)
     clean = clean.strip()
     if not clean:
+        logger.warning(
+            f"[TELEGRAM] Empty reply after think-tag strip — raw response was "
+            f"{len(response_text)} chars. Raw: {response_text[:200]!r}"
+        )
         return
 
     # Determine parse mode and voice from task config

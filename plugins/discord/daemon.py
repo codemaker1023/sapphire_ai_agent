@@ -403,7 +403,15 @@ def _reply_handler(task, event_data: dict, response_text: str):
     # token banned by Discord's anti-spam heuristics. Day-ruiner H1.
     trigger_config = task.get("trigger_config", {}) or {}
     if not trigger_config.get("auto_reply"):
-        logger.debug(f"[DISCORD] auto_reply disabled — skipping channel reply to #{channel_id}")
+        # INFO not DEBUG: when the bot "goes silent" this is the likely
+        # cause, and admins need to see it without flipping log levels.
+        # Task default is True as of 2026-04-24 — an OFF here is a deliberate
+        # user choice (listen-only mode) or a pre-flip legacy task.
+        logger.info(
+            f"[DISCORD] auto_reply OFF — skipping reply to "
+            f"#{event_data.get('channel_name', channel_id)} "
+            f"(task '{task.get('name', '?')}'). Enable in Schedule if unintended."
+        )
         return
 
     # Cooldown check — skip if replied to this channel too recently.
@@ -427,6 +435,14 @@ def _reply_handler(task, event_data: dict, response_text: str):
     clean = re.sub(r'^[\s\S]*</(?:seed:think|seed:cot_budget_reflect|think)>', '', clean, flags=re.IGNORECASE)
     clean = clean.strip()
     if not clean:
+        # Silent-drop was causing "typing... then nothing" UX on reasoning
+        # models. Make it loud AND show what we're stripping — the raw repr
+        # tells us if the model emitted think tags, a tiny stub, or just
+        # whitespace. Truncated to 200 chars to keep logs readable.
+        logger.warning(
+            f"[DISCORD] Empty reply after think-tag strip — raw response was "
+            f"{len(response_text)} chars. Raw: {response_text[:200]!r}"
+        )
         return
 
     # Discord has a 2000 char limit
