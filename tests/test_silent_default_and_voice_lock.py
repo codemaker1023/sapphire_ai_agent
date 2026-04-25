@@ -454,7 +454,16 @@ def test_execution_context_marks_tool_loop_exhaustion_as_degraded():
     assert "tool loop" in ctx.degraded_reason.lower() or "exhausted" in ctx.degraded_reason.lower(), (
         f"degraded_reason text doesn't identify exhaustion: {ctx.degraded_reason!r}"
     )
-    assert result, "final_content should be the placeholder string, not empty"
+    # 2026-04-24 contract change: final_content MUST be empty on exhaustion.
+    # Previously the engineering placeholder ("(No response — tool loop
+    # exhausted...)") was returned and ended up spoken aloud / posted to
+    # Discord channels. Diagnostic now lives in degraded_reason only;
+    # final_content stays empty so caller truthy checks drop the output.
+    assert result == "", (
+        f"final_content must be empty on exhaustion (UI uses degraded_reason "
+        f"for the diagnostic, final_content must not leak engineering text to "
+        f"TTS / Discord / etc.). Got: {result!r}"
+    )
 
 
 def test_execution_context_clean_run_has_no_degraded_reason():

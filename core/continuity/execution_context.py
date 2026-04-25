@@ -440,21 +440,29 @@ class ExecutionContext:
             if last.get("role") == "assistant" and last.get("content"):
                 final_content = last["content"]
             else:
-                # Synthesize a final message so the conversation isn't left with
-                # an orphaned user turn. Use the specific overflow reason if we
-                # broke on context, generic fallback otherwise. Both paths set
-                # degraded_reason so callers (LLMWorker → agent UI) can render
-                # this run as degraded rather than green-success. Scout #15.
+                # Diagnostic text MUST stay in degraded_reason for UI badges /
+                # logs only — it must NEVER end up as final_content because
+                # final_content becomes TTS speech, Discord channel posts,
+                # Telegram replies, email bodies. Sapphire saying "(No response
+                # — tool loop exhausted or LLM returned empty)" out loud was
+                # the 2026-04-24 Evening-mode incident; the same string going
+                # to Discord channels was the local-Sapph variant. Both close
+                # by keeping final_content empty here so caller truthy-checks
+                # (`if response:`) drop the output cleanly. Scout #15 / Krem
+                # 2026-04-24.
                 if overflow_reason:
-                    final_content = overflow_reason
                     self.degraded_reason = overflow_reason
                 else:
-                    final_content = "(No response — tool loop exhausted or LLM returned empty)"
                     self.degraded_reason = (
                         f"Tool loop exhausted after {max_iterations} rounds without "
                         f"a final reply. Tools called: {', '.join(self.tool_log) or '(none)'}."
                     )
-                messages.append({"role": "assistant", "content": final_content})
+                final_content = ""
+                # Empty assistant content keeps the chat-history pair intact
+                # (closes the orphaned-user-turn hazard the original synth was
+                # written to address) without putting engineering text in front
+                # of users.
+                messages.append({"role": "assistant", "content": ""})
 
         # Expose messages generated during this run. Only include if we got a response —
         # an orphaned user message with no assistant reply corrupts chat history.
